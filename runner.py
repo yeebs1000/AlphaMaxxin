@@ -37,6 +37,22 @@ except ImportError:
     def get_moomoo_analyst_consensus(ticker):
         return None
 
+# Real technical indicator calculation (RSI/MACD/MAs/Bollinger/volume profile)
+# — optional, the Technical Analysis Agent just gets no real-data block if missing.
+try:
+    from technical_indicators import get_technical_snapshot, format_technical_context
+    _TECHNICAL_INDICATORS_AVAILABLE = True
+except ImportError:
+    _TECHNICAL_INDICATORS_AVAILABLE = False
+
+# Broad-market candidate universe for the Screener agent — optional, the
+# Screener just falls back to scanning from its own knowledge if missing.
+try:
+    from market_screener import get_market_candidates, format_market_screening_context
+    _MARKET_SCREENER_AVAILABLE = True
+except ImportError:
+    _MARKET_SCREENER_AVAILABLE = False
+
 
 # Manually load .env since python-dotenv might not be installed
 if os.path.exists(".env"):
@@ -481,6 +497,46 @@ IMPORTANT INSTRUCTIONS:
     return context
 
 
+# Caps how many tickers get a real technical snapshot computed per run — this
+# is a non-LLM network fetch (Yahoo/moomoo), but still sequential, so a huge
+# portfolio doesn't add a long, uncapped delay before the Technical Analysis
+# Agent's LLM call even starts.
+_MAX_TECHNICAL_TICKERS = 12
+
+
+def get_technical_context_block(target_input="Portfolio.md") -> str:
+    """Real computed RSI/MACD/Moving-Average/Bollinger/volume-profile data for
+    the active ticker(s), for injection into the Technical Analysis Agent's
+    prompt only — other agents don't need this and it would just add tokens
+    to every sub-agent call for no benefit."""
+    if not _TECHNICAL_INDICATORS_AVAILABLE:
+        return ""
+    metrics = get_metrics_sync(target_input)
+    tickers = [h["ticker"] for h in metrics["holdings"][:_MAX_TECHNICAL_TICKERS]]
+    blocks = []
+    for ticker in tickers:
+        try:
+            snap = get_technical_snapshot(ticker)
+        except Exception:
+            snap = None
+        if snap:
+            blocks.append(format_technical_context(snap))
+    return "\n".join(blocks)
+
+
+def get_market_screening_context_block() -> str:
+    """Real-data broad-market candidate universe (US non-mega-cap, SGX, HKEX)
+    for injection into the Screener agent's prompt only — every other agent
+    stays focused on the user's own holdings."""
+    if not _MARKET_SCREENER_AVAILABLE:
+        return ""
+    try:
+        candidates = get_market_candidates()
+    except Exception:
+        return ""
+    return format_market_screening_context(candidates)
+
+
 # ---------------------------------------------------------------------------
 # LLM caller
 # ---------------------------------------------------------------------------
@@ -527,7 +583,14 @@ async def call_llm(system_prompt: str, user_prompt: str, model: str = DEFAULT_MO
         import google.genai as genai
         from google.genai import types
         client = genai.Client(api_key=gemini_key)
-        response = client.models.generate_content(
+        # google-genai's Client is synchronous — a blocking call here would
+        # freeze the whole asyncio event loop for the duration of the network
+        # round-trip, making every "concurrent" sub-agent run strictly one at
+        # a time despite asyncio.gather. asyncio.to_thread() runs it in a
+        # worker thread instead, so the loop stays free to run other agents'
+        # coroutines while this one waits on the network.
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=model,
             contents=user_prompt,
             config=types.GenerateContentConfig(
@@ -542,7 +605,9 @@ async def call_llm(system_prompt: str, user_prompt: str, model: str = DEFAULT_MO
         try:
             from openai import OpenAI
             client = OpenAI(api_key=openai_key)
-            response = client.chat.completions.create(
+            # Same blocking-client issue as Gemini above — offload to a thread.
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=model if "gpt" in model else "gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -565,8 +630,31 @@ async def call_llm(system_prompt: str, user_prompt: str, model: str = DEFAULT_MO
 # and then papered over by the orchestrator inventing a plausible-sounding
 # excuse for the gap. Fixing the burst is the real fix; the prompt-level rule
 # (see AGENTS_v3.0.md) is to never fabricate a cause for missing data either way.
-_SUBAGENT_CONCURRENCY = 6
-_subagent_semaphore = asyncio.Semaphore(_SUBAGENT_CONCURRENCY)
+#
+# None of the 32 sub-agents depend on another sub-agent's output (each only
+# receives Portfolio.md/news context — see get_workspace_state_context) — the
+# fan-out below is already maximally parallel in that sense. The real lever
+# left is the cap itself: one global semaphore throttles every provider to
+# the same limit, even though Gemini (the default per-agent tier) tolerates
+# far more concurrent traffic than Claude before rate-limiting. Splitting the
+# cap per-provider lets the Gemini-tier majority of agents run with much less
+# queuing, while keeping Claude-tier agents (usually just the synthesis call)
+# at the conservative limit that avoids 429/529s.
+_PROVIDER_CONCURRENCY = {"claude": 4, "gemini": 12, "openai": 8}
+_DEFAULT_CONCURRENCY = 6
+_provider_semaphores: dict[str, asyncio.Semaphore] = {
+    provider: asyncio.Semaphore(limit) for provider, limit in _PROVIDER_CONCURRENCY.items()
+}
+
+
+def _semaphore_for_model(model: str) -> asyncio.Semaphore:
+    model_lower = (model or "").lower()
+    for provider, semaphore in _provider_semaphores.items():
+        if provider in model_lower:
+            return semaphore
+    return _provider_semaphores.setdefault(
+        "_default", asyncio.Semaphore(_DEFAULT_CONCURRENCY)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -597,7 +685,8 @@ async def run_agent(
         async def run_one(agent, idx):
             if progress_callback:
                 progress_callback(agent, f"Starting ({idx+1}/{total})...")
-            async with _subagent_semaphore:
+            agent_model = (agent_models or {}).get(agent, DEFAULT_MODEL)
+            async with _semaphore_for_model(agent_model):
                 result = await run_agent(agent, target_input, agent_models=agent_models)  # sub-agent has NO active_agents
                 if not result:
                     # Empty result = the call failed even after call_llm's own retry.
@@ -628,6 +717,14 @@ async def run_agent(
         system_prompt = extract_prompt_block(target_name)
         # Build prompt
         prompt = get_workspace_state_context(target_input)
+        if target_name == "Technical Analysis Agent":
+            technical_block = get_technical_context_block(target_input)
+            if technical_block:
+                prompt += f"\n\n{technical_block}"
+        elif target_name == "High-Conviction Stock & Options Screener":
+            market_block = get_market_screening_context_block()
+            if market_block:
+                prompt += f"\n\n{market_block}"
         prompt += f"\n\nYOUR TASK:\nExecute your designated role as '{target_name}'. Target: {target_input}."
 
     # Now execute the LLM if we have a prompt
@@ -721,6 +818,111 @@ def parse_portfolio_full(file_path=None) -> list:
             continue
 
     return holdings
+
+
+# ---------------------------------------------------------------------------
+# Free, zero-LLM position guidance heuristic
+# ---------------------------------------------------------------------------
+def get_position_guidance(file_path=None) -> list:
+    """
+    Mechanical, zero-LLM-cost per-holding signal for an at-a-glance dashboard
+    view. Combines unrealized P&L vs. cost basis (from Portfolio.md), real
+    RSI/trend (technical_indicators.get_technical_snapshot), and moomoo
+    analyst consensus into a simple score -> Increase/Hold/Trim label.
+
+    This is a rule-based heuristic, not personalized financial advice — for a
+    qualitative, reasoned recommendation use the Investment Recommendation
+    Agent (e.g. the "Portfolio Medic" preset) on demand instead.
+
+    Returns a list of dicts:
+    [{ticker, company, price, cost_price, pnl_pct, rsi14, trend,
+      analyst_consensus, score, signal, reasons}, ...]
+    """
+    holdings = parse_portfolio_full(file_path)
+    out = []
+    for h in holdings:
+        ticker = h["ticker"]
+        cost_price = h.get("cost_price") or 0.0
+
+        live = fetch_live_price(ticker) or fetch_live_price(h["company"])
+        if live is None:
+            continue
+        price = live["price"]
+        pnl_pct = ((price - cost_price) / cost_price * 100) if cost_price else None
+
+        rsi14 = None
+        trend = "Unknown"
+        if _TECHNICAL_INDICATORS_AVAILABLE:
+            try:
+                snap = get_technical_snapshot(ticker)
+            except Exception:
+                snap = None
+            if snap:
+                rsi14 = snap.get("rsi14")
+                last_close, sma50, sma200 = snap.get("last_close"), snap.get("sma50"), snap.get("sma200")
+                if last_close is not None and sma50 is not None and sma200 is not None:
+                    if last_close > sma50 > sma200:
+                        trend = "Uptrend"
+                    elif last_close < sma50 < sma200:
+                        trend = "Downtrend"
+                    else:
+                        trend = "Mixed"
+
+        consensus = get_moomoo_analyst_consensus(ticker)
+
+        score = 0
+        reasons = []
+        if rsi14 is not None:
+            if rsi14 < 30:
+                score += 1
+                reasons.append(f"RSI {rsi14:.0f} (oversold)")
+            elif rsi14 > 70:
+                score -= 1
+                reasons.append(f"RSI {rsi14:.0f} (overbought)")
+        if trend == "Uptrend":
+            score += 1
+            reasons.append("Price above 50/200-day SMA (uptrend)")
+        elif trend == "Downtrend":
+            score -= 1
+            reasons.append("Price below 50/200-day SMA (downtrend)")
+        if consensus and consensus.get("analyst_count"):
+            if consensus.get("buy_pct", 0) >= 60:
+                score += 1
+                reasons.append(f"{consensus['buy_pct']:.0f}% analyst Buy consensus")
+            elif consensus.get("sell_pct", 0) >= 40:
+                score -= 1
+                reasons.append(f"{consensus['sell_pct']:.0f}% analyst Sell consensus")
+        if pnl_pct is not None:
+            if pnl_pct <= -15:
+                reasons.append(f"Underwater {pnl_pct:.1f}% vs. cost basis")
+            elif pnl_pct >= 30:
+                reasons.append(f"Up {pnl_pct:.1f}% vs. cost basis (extended gain)")
+
+        if score >= 2:
+            signal = "Increase / Accumulate"
+        elif score == 1:
+            signal = "Hold (Mildly Bullish)"
+        elif score == 0:
+            signal = "Hold"
+        elif score == -1:
+            signal = "Hold (Mildly Bearish) / Watch"
+        else:
+            signal = "Trim / Reduce"
+
+        out.append({
+            "ticker": ticker,
+            "company": h["company"],
+            "price": price,
+            "cost_price": cost_price,
+            "pnl_pct": pnl_pct,
+            "rsi14": rsi14,
+            "trend": trend,
+            "analyst_consensus": consensus,
+            "score": score,
+            "signal": signal,
+            "reasons": reasons,
+        })
+    return out
 
 
 # Section heading per currency — extend this when a new currency shows up in

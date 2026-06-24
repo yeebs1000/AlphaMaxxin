@@ -35,7 +35,8 @@ matplotlib.use('TkAgg')
 try:
     from runner import (
         run_agent, get_metrics_sync, search_ticker, fetch_live_price,
-        parse_portfolio_full, save_portfolio, sync_portfolio_from_moomoo
+        parse_portfolio_full, save_portfolio, sync_portfolio_from_moomoo,
+        get_position_guidance
     )
 except ImportError:
     async def run_agent(agent_name, analysis_target="Portfolio.md", active_agents=None, progress_callback=None):
@@ -46,6 +47,8 @@ except ImportError:
         return []
     def fetch_live_price(query):
         return None
+    def get_position_guidance(file_path=None):
+        return []
     def parse_portfolio_full(file_path=None):
         return []
     def save_portfolio(holdings, file_path=None):
@@ -205,6 +208,144 @@ AGENT_LAYERS = {
     "LAYER 4 — OUTPUT": ALL_AGENTS[28:32],
 }
 
+# Named Master Orchestrator agent presets — not every run needs all 32
+# agents. Each preset is a curated subset for a specific job, so a run
+# doesn't pay for (and wait on) agents whose output the job doesn't use.
+AGENT_PRESETS = {
+    "Lite Preset": [
+        "US Macro Analyst",
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Risk Management Agent",
+        "Investment Recommendation Agent",
+    ],
+    # New-idea generation: scan for fresh high-conviction setups. Skips every
+    # regional macro agent, portfolio-construction, and execution/CFD agents
+    # — none of those inform whether a NEW ticker is worth screening in.
+    "Opportunist": [
+        "Real-Time News Intelligence Agent",
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Sector Analyst Agent",
+        "Catalyst & Event Calendar Agent",
+        "Social Sentiment Scanner",
+        "Quantitative Signal Aggregator",
+        "Risk Management Agent",
+        "High-Conviction Stock & Options Screener",
+    ],
+    # Big-picture macro/rates/FX read with no single-ticker number-crunching
+    # — for when you want the global backdrop, not a stock-by-stock report.
+    "Macro Pulse": [
+        "US Macro Analyst",
+        "APAC Macro Analyst",
+        "China Market Agent",
+        "Japan Market Agent",
+        "Korea Market Agent",
+        "EMEA / Rest-of-World Analyst",
+        "Emerging Markets Analyst",
+        "Fixed Income & Rates Agent",
+        "FX & Commodities Agent",
+        "Central Bank Text & NLP Sentiment Analyst",
+        "Real-Time News Intelligence Agent",
+        "Investment Recommendation Agent",
+    ],
+    # Existing-holdings health check: skip macro/regional and the screener
+    # entirely — this is about managing what you already own, not finding
+    # new ideas.
+    "Portfolio Medic": [
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Risk Management Agent",
+        "Portfolio Construction Agent",
+        "Execution & Trade Management Agent",
+        "CFD Funding & Cost Optimizer",
+        "Investment Recommendation Agent",
+    ],
+    # China/HK-listed exposure — skips every other region (US/Japan/Korea/
+    # EM/EMEA macro) and keeps only what actually moves a China/HK name.
+    "Dragon Watch": [
+        "China Market Agent",
+        "Global Corporate Supply Chain Graph Mapper",
+        "FX & Commodities Agent",
+        "Central Bank Text & NLP Sentiment Analyst",
+        "Real-Time News Intelligence Agent",
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Risk Management Agent",
+        "Investment Recommendation Agent",
+    ],
+    # Japan-listed exposure.
+    "Sakura Signal": [
+        "Japan Market Agent",
+        "FX & Commodities Agent",
+        "Real-Time News Intelligence Agent",
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Risk Management Agent",
+        "Investment Recommendation Agent",
+    ],
+    # Korea-listed exposure.
+    "Kimchi Premium": [
+        "Korea Market Agent",
+        "FX & Commodities Agent",
+        "Real-Time News Intelligence Agent",
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Risk Management Agent",
+        "Investment Recommendation Agent",
+    ],
+    # Broad emerging-markets / rest-of-world exposure — for names outside
+    # the US/China/Japan/Korea core coverage (SE Asia, LatAm, EMEA, etc.).
+    "Frontier Run": [
+        "APAC Macro Analyst",
+        "EMEA / Rest-of-World Analyst",
+        "Emerging Markets Analyst",
+        "FX & Commodities Agent",
+        "Real-Time News Intelligence Agent",
+        "Fundamental Analysis Agent",
+        "Technical Analysis Agent",
+        "Risk Management Agent",
+        "Investment Recommendation Agent",
+    ],
+    # Pure quant/data signal — no fundamental or macro narrative at all,
+    # just the alt-data, order-book, ML, and backtest-validated signal
+    # agents feeding straight into Risk Management.
+    "Quant Lab": [
+        "Alternative Data Analyst",
+        "Digital Footprint & Developer Momentum Scanner",
+        "Global Order Book & Liquidity Profiler",
+        "Machine Learning Alpha Extractor",
+        "Quantitative Signal Aggregator",
+        "Backtester & Simulation Validator",
+        "Risk Management Agent",
+    ],
+    # Follow the smart money — insider/politician trading, private capital
+    # moves, and IPO/primary-market activity, not standard fundamentals.
+    "Insider Edge": [
+        "Politician Portfolio Scanner",
+        "Private Capital & Corporate Activity Agent",
+        "IPO & Primary Markets Agent",
+        "Real-Time News Intelligence Agent",
+        "Risk Management Agent",
+        "Investment Recommendation Agent",
+    ],
+}
+
+# One-line "what does this preset do" blurb shown under each name in the
+# Presets dropdown — kept in sync with the curated agent subsets above.
+AGENT_PRESET_DESCRIPTIONS = {
+    "Lite Preset": "Fast, minimal 5-agent core read",
+    "Opportunist": "Scan for new high-conviction setups",
+    "Macro Pulse": "Global macro/rates/FX backdrop only",
+    "Portfolio Medic": "Health check on existing holdings",
+    "Dragon Watch": "China/HK-listed exposure focus",
+    "Sakura Signal": "Japan-listed exposure focus",
+    "Kimchi Premium": "Korea-listed exposure focus",
+    "Frontier Run": "Emerging markets / rest-of-world focus",
+    "Quant Lab": "Pure quant/alt-data signal, no narrative",
+    "Insider Edge": "Follow insider, political & private-capital flow",
+}
+
 # Friendly dropdown label -> real, currently-live API model id.
 MODEL_ID_MAP = {
     "Gemini 2.5 Flash": "gemini-2.5-flash",
@@ -220,42 +361,79 @@ MODEL_ID_MAP = {
 # HTML Report Renderer (unchanged from previous — preserves report formatting)
 # =============================================================================
 def render_report_html(title: str, report_text: str) -> str:
-    """Convert markdown-ish report text to a beautiful HTML page."""
+    """Convert markdown-ish report text to a beautiful HTML page.
+
+    Field labels and section headers are detected generically (by shape,
+    not a fixed name list) so formatting stays consistent across all 32
+    agents regardless of which exact field/section names a given prompt
+    uses — a hardcoded label list drifts out of sync every time a prompt
+    is edited."""
     import html as html_mod
     import re
     safe_text = html_mod.escape(report_text)
 
-    KNOWN_LABELS = [
-        "Investment Thesis", "Entry Range", "Price Target", "Stop Level", "Risk/Reward",
-        "Instrument", "Structure", "Options Details", "Conviction Tier", "Composite Score",
-        "Position Size", "Signal Sources", "Conflicting Lines", "Key Threats", "Catalyst Watch",
-        "Direction", "Time Horizon", "Sleeve", "Geography", "Asset Class", "Ticker / Name",
-        "Field Content", "Exit Conditions", "Loss Exit", "Time Exit"
-    ]
+    # ── Generic "Label : value" bolding ─────────────────────────────────
+    # Matches an optional leading bullet, a short Title-Case-ish label,
+    # then a colon. Catches every agent's field lines without needing to
+    # know the label names in advance.
+    FIELD_LINE_RE = re.compile(
+        r"^(?P<bullet>[-*]\s+)?(?P<label>[A-Z][A-Za-z0-9 /&.()'%-]{1,42}?)\s{0,4}:\s*(?P<rest>.*)$"
+    )
 
     lines = safe_text.split("\n")
     for i in range(len(lines)):
-        line = lines[i].strip()
-        for label in KNOWN_LABELS:
-            pattern = r'^(?:\*\*|)?' + re.escape(label) + r'(?:\*\*|)?\s*:?\s*(.*)$'
-            match = re.match(pattern, line, re.IGNORECASE)
-            if match:
-                rest_of_line = match.group(1).strip()
-                if label.lower() == "price target":
-                    rest_of_line = re.sub(r'\|\s*(Bull Case Target|Bear Case Limit)\s*:?\s*', r'| **\1:** ', rest_of_line, flags=re.IGNORECASE)
-                    rest_of_line = re.sub(r'(Base Case Target)\s*:?\s*', r'**\1:** ', rest_of_line, flags=re.IGNORECASE)
-                lines[i] = f"**{label}:** {rest_of_line}"
-                break
+        stripped = lines[i].strip()
+        if stripped.startswith("|"):
+            continue
+        match = FIELD_LINE_RE.match(stripped)
+        if not match:
+            continue
+        label = match.group("label").strip()
+        if label.lower().startswith(("http", "https")):
+            continue
+        rest_of_line = match.group("rest").strip()
+        bullet = match.group("bullet") or ""
+        if label.lower() == "price target":
+            rest_of_line = re.sub(r'\|\s*(Bull Case Target|Bear Case Limit)\s*:?\s*', r'| **\1:** ', rest_of_line, flags=re.IGNORECASE)
+            rest_of_line = re.sub(r'(Base Case Target)\s*:?\s*', r'**\1:** ', rest_of_line, flags=re.IGNORECASE)
+        lines[i] = f"{bullet}**{label}:** {rest_of_line}"
 
     safe_text = "\n".join(lines)
     safe_text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', safe_text)
 
+    # ── Standalone section-header detection ─────────────────────────────
+    # A bare line (no colon, no trailing period, short) that isn't a
+    # bullet/number/blank is treated as a sub-header — this is what makes
+    # headers like "Technical Setup" or "Greeks Snapshot" bold and themed
+    # even though the agent didn't prefix them with markdown "###".
+    HEADER_LIKE_RE = re.compile(r"^[A-Z][A-Za-z0-9 ,/&'\-()]{1,55}\??$")
+
+    def _looks_like_header(s: str) -> bool:
+        if ":" in s or s.endswith(".") or "<strong>" in s:
+            return False
+        if not HEADER_LIKE_RE.match(s):
+            return False
+        return len(s.rstrip("?").split()) <= 8
+
     lines = safe_text.split("\n")
     html_lines = []
     in_table = False
+    pending_tag = None    # "li" or "p" — block currently being accumulated
+    pending_text = []
+
+    def flush_pending():
+        nonlocal pending_tag, pending_text
+        if pending_tag and pending_text:
+            content = " ".join(t.strip() for t in pending_text if t.strip())
+            if content:
+                html_lines.append(f"<{pending_tag}>{content}</{pending_tag}>")
+        pending_tag = None
+        pending_text = []
+
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("|") and stripped.endswith("|"):
+            flush_pending()
             cells = [c.strip().strip('*') for c in stripped.split("|")[1:-1]]
             if all(set(c) <= set("- :") for c in cells):
                 continue
@@ -272,33 +450,62 @@ def render_report_html(title: str, report_text: str) -> str:
                 in_table = False
 
         if stripped.startswith("### "):
+            flush_pending()
             html_lines.append(f'<h3>{stripped[4:]}</h3>')
         elif stripped.startswith("## "):
+            flush_pending()
             html_lines.append(f'<h2>{stripped[3:]}</h2>')
         elif stripped.startswith("# "):
+            flush_pending()
             html_lines.append(f'<h2 class="h1-equivalent">{stripped[2:]}</h2>')
         elif re.match(r'^SEVEN-SECTION COMPILED.*$', stripped, re.IGNORECASE) or re.match(r'^TEN-SECTION COMPILED.*$', stripped, re.IGNORECASE):
+            flush_pending()
             html_lines.append(f'<h1 class="main-report-title">{stripped}</h1>')
         elif re.match(r'^INVESTMENT BRIEF ARCHITECTURE COMPILATION RUN:?$', stripped, re.IGNORECASE):
+            flush_pending()
             html_lines.append(f'<h3 class="system-run-title">{stripped}</h3>')
         elif re.match(r'^SECTION \d+[a-b]?\s*[—\-:].*$', stripped, re.IGNORECASE):
+            flush_pending()
+            html_lines.append(f'<h2 class="section-title">{stripped}</h2>')
+        elif re.match(r'^(EQUITY|OPTIONS) SETUP\s*#?\d*$', stripped, re.IGNORECASE):
+            flush_pending()
             html_lines.append(f'<h2 class="section-title">{stripped}</h2>')
         elif stripped.startswith("────") or stripped == "---":
+            flush_pending()
             pass
         elif stripped.startswith("*(") or (stripped.startswith("*") and stripped.endswith(")*")):
+            flush_pending()
             clean = stripped.strip("*")
             html_lines.append(f'<p class="footnote">*{clean}*</p>')
         elif stripped.startswith("- ") or stripped.startswith("* "):
-            html_lines.append(f'<li>{stripped[2:]}</li>')
+            flush_pending()
+            pending_tag = "li"
+            pending_text = [stripped[2:]]
         elif stripped == "":
+            flush_pending()
             html_lines.append('<br>')
         else:
             num_match = re.match(r'^(\d+)\.\s+(.+)', stripped)
             if num_match:
-                html_lines.append(f'<li>{num_match.group(2)}</li>')
+                flush_pending()
+                pending_tag = "li"
+                pending_text = [num_match.group(2)]
+            elif pending_tag is None and _looks_like_header(stripped):
+                html_lines.append(f'<h3>{stripped}</h3>')
+            elif stripped.startswith("<strong>"):
+                # An already-bolded "Label: value" field line — always its
+                # own paragraph, never merged into a neighboring block, so
+                # stacked fields (Direction / Time Horizon / etc.) keep the
+                # vertical spacing that makes them readable.
+                flush_pending()
+                html_lines.append(f'<p>{stripped}</p>')
+            elif pending_tag in ("li", "p"):
+                pending_text.append(stripped)
             else:
-                html_lines.append(f'<p>{line}</p>')
+                pending_tag = "p"
+                pending_text = [stripped]
 
+    flush_pending()
     if in_table:
         html_lines.append('</table>')
 
@@ -534,7 +741,7 @@ class SleekDropdown(ctk.CTkFrame):
         for inst in list(cls._open_instances):
             inst.close_dropdown()
 
-    def __init__(self, master, values, command=None, font=("Segoe UI", 11), fg_color=None, text_color=None, hover_color=None, corner_radius=8, height=36, **kwargs):
+    def __init__(self, master, values, command=None, font=("Segoe UI", 11), fg_color=None, text_color=None, hover_color=None, corner_radius=8, height=36, descriptions=None, **kwargs):
         super().__init__(master, height=height, corner_radius=corner_radius, fg_color=fg_color, **kwargs)
         self.values = values
         self.command = command
@@ -542,6 +749,10 @@ class SleekDropdown(ctk.CTkFrame):
         self.hover_color = hover_color
         self.current_value = values[0] if values else ""
         self.dropdown_window = None
+        # Optional {value: "short one-line blurb"} shown as a dimmer subtitle
+        # under each row -- e.g. so the Presets dropdown can explain what
+        # each preset actually does without leaving the dropdown.
+        self.descriptions = descriptions or {}
 
         self.btn = ctk.CTkButton(
             self, text=self.current_value, font=font, height=height - 4,
@@ -570,15 +781,28 @@ class SleekDropdown(ctk.CTkFrame):
             self.close_dropdown()
             return
         
-        self.dropdown_window = ctk.CTkToplevel(self)
+        # Rooted at the actual top-level window (not `self`) so customtkinter's
+        # mousewheel ancestry check (which walks the logical .master chain, not
+        # screen geometry) doesn't trace back through this widget into whatever
+        # CTkScrollableFrame happens to be its ancestor in the main window --
+        # that cross-talk was causing the page behind the popup to scroll too.
+        self.dropdown_window = ctk.CTkToplevel(self.winfo_toplevel())
         self.dropdown_window.overrideredirect(True)
         self.dropdown_window.attributes("-topmost", True)
         self.dropdown_window.configure(fg_color=self.cget("fg_color"))
 
         x = self.winfo_rootx()
         y = self.winfo_rooty() + self.winfo_height() + 2
-        width = max(self.winfo_width(), 350)  # Generous width to prevent agent clipping
-        height_win = min(len(self.values) * 36 + 10, 250)
+        # Width grows with the longest label instead of a generous flat 350px,
+        # so short lists (e.g. market benchmark) don't render an oversized popup.
+        texts = list(self.values) + list(self.descriptions.values())
+        try:
+            longest = max((self.btn._font.measure(t) for t in texts), default=0)
+        except Exception:
+            longest = max((len(t) for t in texts), default=0) * 7
+        width = min(max(longest + 56, self.winfo_width(), 160), 420)
+        row_height = 48 if self.descriptions else 30
+        height_win = min(len(self.values) * row_height + 10, 260)
         self.dropdown_window.geometry(f"{width}x{height_win}+{x}+{y}")
 
         # Apple-style border and padding container (resolving dynamically based on system mode)
@@ -598,20 +822,48 @@ class SleekDropdown(ctk.CTkFrame):
             container,
             fg_color="transparent",
             corner_radius=8,
-            label_text=""
+            label_text="",
+            scrollbar_button_color=border_color,
+            scrollbar_button_hover_color=self.hover_color or border_color
         )
         scroll_frame.pack(fill="both", expand=True, padx=1, pady=1)
+        # Thin, pill-shaped scrollbar to match the app's Apple-style scroll
+        # treatment elsewhere, instead of CTk's default chunky 16px bar.
+        try:
+            scroll_frame._scrollbar.configure(width=6, corner_radius=3, border_spacing=0)
+        except Exception:
+            pass
 
         btn_width = width - 40  # Force button canvas width to prevent clipping
         for val in self.values:
-            b = ctk.CTkButton(
-                scroll_frame, text=val, font=self.btn.cget("font"), height=32,
-                width=btn_width,
-                fg_color="transparent", text_color=self.text_color,
-                hover_color=self.hover_color, anchor="w", corner_radius=6,
-                command=lambda v=val: self.select_value(v)
-            )
-            b.pack(fill="x", padx=4, pady=1)
+            desc = self.descriptions.get(val)
+            if desc:
+                # Two-line row: bold name on top, dimmer one-line blurb below --
+                # the button itself is transparent and just carries the click.
+                b = ctk.CTkButton(
+                    scroll_frame, text="", height=44, width=btn_width,
+                    fg_color="transparent", hover_color=self.hover_color,
+                    anchor="w", corner_radius=6,
+                    command=lambda v=val: self.select_value(v)
+                )
+                b.pack(fill="x", padx=4, pady=1)
+                name_font = self.btn.cget("font")
+                desc_font = (name_font[0], max(name_font[1] - 2, 9)) if isinstance(name_font, (list, tuple)) else font
+                name_lbl = ctk.CTkLabel(b, text=val, font=name_font, text_color=self.text_color, fg_color="transparent")
+                name_lbl.place(relx=0, rely=0.5, anchor="w", x=12, y=-9)
+                desc_lbl = ctk.CTkLabel(b, text=desc, font=desc_font, text_color=THEMES.get(mode, THEMES["dark"])["text_muted"], fg_color="transparent")
+                desc_lbl.place(relx=0, rely=0.5, anchor="w", x=12, y=10)
+                for w in (name_lbl, desc_lbl):
+                    w.bind("<Button-1>", lambda e, v=val: self.select_value(v))
+            else:
+                b = ctk.CTkButton(
+                    scroll_frame, text=val, font=self.btn.cget("font"), height=32,
+                    width=btn_width,
+                    fg_color="transparent", text_color=self.text_color,
+                    hover_color=self.hover_color, anchor="w", corner_radius=6,
+                    command=lambda v=val: self.select_value(v)
+                )
+                b.pack(fill="x", padx=4, pady=1)
 
         self.dropdown_window.bind("<FocusOut>", lambda e: self.close_dropdown())
         self.dropdown_window.focus_set()
@@ -639,6 +891,13 @@ class SleekDropdown(ctk.CTkFrame):
     def set(self, value):
         self.current_value = value
         self.btn.configure(text=value)
+
+    def set_values(self, values):
+        """Repopulate the option list for dynamic dropdowns (e.g. a ticker
+        filter whose entries depend on the user's current holdings)."""
+        self.values = values
+        if self.current_value not in values and values:
+            self.set(values[0])
 
 class PortfolioAgentApp(ctk.CTk):
     def __init__(self):
@@ -679,6 +938,7 @@ class PortfolioAgentApp(ctk.CTk):
         # loop". Scheduling via after(0,...) guarantees the thread doesn't even
         # start until the loop is confirmed running.
         self.after(0, self.refresh_metrics_loop)
+        self.after(0, self._auto_sync_portfolio_on_launch)
 
     def _set_app_icon(self):
         try:
@@ -701,6 +961,15 @@ class PortfolioAgentApp(ctk.CTk):
         self.hide_dropdown()
         self.hide_hist_dropdown()
         SleekDropdown.close_all_open()
+
+    def _slim_scrollbar(self, scrollable_frame, width=6):
+        """Apple-style thin scrollbar for a CTkScrollableFrame, in place of
+        CTk's default chunky ~16px bar — call right after creating one."""
+        try:
+            scrollable_frame._scrollbar.configure(
+                width=width, corner_radius=width // 2, border_spacing=0, minimum_pixel_length=28)
+        except Exception:
+            pass
 
     # =========================================================================
     # Build entire UI (called once and on theme switch)
@@ -875,35 +1144,40 @@ class PortfolioAgentApp(ctk.CTk):
         row += 1
         actions_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         actions_frame.grid(row=row, column=0, padx=20, pady=(0, 8), sticky="ew")
-        actions_frame.grid_columnconfigure((0, 2), weight=2)
-        actions_frame.grid_columnconfigure(1, weight=3)
+        actions_frame.grid_columnconfigure(0, weight=0)
+        actions_frame.grid_columnconfigure(1, weight=1)
+        actions_frame.grid_columnconfigure(2, weight=0)
 
+        # "All"/"None" are secondary, low-emphasis actions — ghost text-links
+        # rather than full buttons, so the Presets picker reads as the primary
+        # control instead of three equally-weighted bars.
         btn_select_all = ctk.CTkButton(
             actions_frame, text="All", font=("Segoe UI", 10, "bold"),
-            height=26, corner_radius=6,
-            fg_color=self.t["bg_input"], text_color=self.t["text_secondary"],
-            hover_color=self.t["bg_card_hover"],
+            height=24, width=38, corner_radius=8,
+            fg_color="transparent", text_color=self.t["accent"],
+            hover_color=self.t["accent_soft"],
             command=self.select_all_agents
         )
-        btn_select_all.grid(row=0, column=0, padx=(0, 2), sticky="ew")
+        btn_select_all.grid(row=0, column=0, padx=(0, 4), sticky="w")
 
-        btn_lite_preset = ctk.CTkButton(
-            actions_frame, text="Lite Preset", font=("Segoe UI", 10, "bold"),
-            height=26, corner_radius=6,
+        self.preset_dropdown = SleekDropdown(
+            actions_frame, values=["Presets"] + list(AGENT_PRESETS.keys()),
+            font=("Segoe UI", 12, "bold"), height=26, corner_radius=10,
             fg_color=self.t["bg_input"], text_color=self.t["text_secondary"],
             hover_color=self.t["bg_card_hover"],
-            command=self.select_lite_agents
+            command=self.apply_agent_preset,
+            descriptions=AGENT_PRESET_DESCRIPTIONS
         )
-        btn_lite_preset.grid(row=0, column=1, padx=2, sticky="ew")
+        self.preset_dropdown.grid(row=0, column=1, padx=2, sticky="ew")
 
         btn_deselect_all = ctk.CTkButton(
             actions_frame, text="None", font=("Segoe UI", 10, "bold"),
-            height=26, corner_radius=6,
-            fg_color=self.t["bg_input"], text_color=self.t["text_secondary"],
-            hover_color=self.t["bg_card_hover"],
+            height=24, width=44, corner_radius=8,
+            fg_color="transparent", text_color=self.t["text_muted"],
+            hover_color=self.t["accent_soft"],
             command=self.deselect_all_agents
         )
-        btn_deselect_all.grid(row=0, column=2, padx=(2, 0), sticky="ew")
+        btn_deselect_all.grid(row=0, column=2, padx=(4, 0), sticky="e")
 
         # ── Scrollable Agent List ──
         row += 1
@@ -914,6 +1188,7 @@ class PortfolioAgentApp(ctk.CTk):
             scrollbar_button_color=self.t["scrollbar"],
             scrollbar_button_hover_color=self.t["scrollbar_hover"])
         self.agent_scroll.grid(row=row, column=0, padx=16, pady=(0, 12), sticky="nsew")
+        self._slim_scrollbar(self.agent_scroll)
 
         self.layer_vars = {}
         self.agent_vars = {}
@@ -1054,16 +1329,11 @@ class PortfolioAgentApp(ctk.CTk):
         for var in self.layer_vars.values():
             var.set(False)
 
-    def select_lite_agents(self):
+    def apply_agent_preset(self, preset_name):
+        if preset_name not in AGENT_PRESETS:
+            return  # the "Presets" placeholder entry — not a real selection
         self.deselect_all_agents()
-        lite_list = [
-            "US Macro Analyst",
-            "Fundamental Analysis Agent",
-            "Technical Analysis Agent",
-            "Risk Management Agent",
-            "Investment Recommendation Agent"
-        ]
-        for agent in lite_list:
+        for agent in AGENT_PRESETS.get(preset_name, []):
             if agent in self.agent_vars:
                 self.agent_vars[agent].set(True)
         # Update layer checkboxes dynamically
@@ -1071,6 +1341,7 @@ class PortfolioAgentApp(ctk.CTk):
             all_checked = all(self.agent_vars[a].get() for a in agents)
             if layer_name in self.layer_vars:
                 self.layer_vars[layer_name].set(all_checked)
+        self.log(f"⚙ Applied preset: {preset_name} ({len(AGENT_PRESETS.get(preset_name, []))} agents)")
 
     def trigger_single_agent_name(self, agent_name):
         target = self.target_input.get().strip() or "Portfolio.md"
@@ -1172,6 +1443,7 @@ class PortfolioAgentApp(ctk.CTk):
             scrollbar_button_color=self.t["scrollbar"],
             scrollbar_button_hover_color=self.t["scrollbar_hover"])
         self.dash_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        self._slim_scrollbar(self.dash_frame)
 
         # ── Welcome header ──
         header_card = ctk.CTkFrame(
@@ -1225,9 +1497,10 @@ class PortfolioAgentApp(ctk.CTk):
             if label == "MARKET BENCHMARK":
                 self.market_dropdown = SleekDropdown(
                     top_row, values=[
-                        "S&P 500 (^GSPC)", "Nasdaq (^IXIC)", "Dow Jones (^DJI)", "Russell 2000 (^RUT)",
-                        "FTSE 100 (^FTSE)", "Nikkei 225 (^N225)", "Straits Times (^STI)", "Hang Seng Index (^HSI)",
-                        "DAX Index (^GDAXI)", "CAC 40 (^FCHI)", "SSE Composite (000001.SS)", "Nifty 50 (^NSEI)", "S&P/ASX 200 (^AXJO)"
+                        "S&P 500 (^GSPC) — US", "Nasdaq (^IXIC) — US", "Dow Jones (^DJI) — US", "Russell 2000 (^RUT) — US",
+                        "FTSE 100 (^FTSE) — UK", "Nikkei 225 (^N225) — Japan", "Straits Times (^STI) — Singapore",
+                        "Hang Seng (^HSI) — Hong Kong", "DAX (^GDAXI) — Germany", "CAC 40 (^FCHI) — France",
+                        "SSE Composite (000001.SS) — China", "Nifty 50 (^NSEI) — India", "S&P/ASX 200 (^AXJO) — Australia"
                     ],
                     font=("Segoe UI", 10, "bold"), height=26, corner_radius=6,
                     fg_color=self.t["bg_input"], text_color=self.t["text_primary"],
@@ -1340,11 +1613,53 @@ class PortfolioAgentApp(ctk.CTk):
                 font=("Segoe UI", 12, "bold"), text_color=color
             ).pack(side="left")
 
+        # ── Position Guidance (free, zero-LLM mechanical signal) ──
+        self.guidance_card = ctk.CTkFrame(
+            self.dash_frame, fg_color=self.t["bg_card"], corner_radius=12,
+            border_color=self.t["border"], border_width=1)
+        self.guidance_card.grid(row=3, column=0, columnspan=4, padx=28, pady=8, sticky="ew")
+
+        guidance_top = ctk.CTkFrame(self.guidance_card, fg_color="transparent")
+        guidance_top.pack(fill="x", padx=20, pady=(18, 4))
+
+        guidance_title_box = ctk.CTkFrame(guidance_top, fg_color="transparent")
+        guidance_title_box.pack(side="left")
+        ctk.CTkLabel(guidance_title_box, text="📍", font=("Segoe UI", 18)).pack(side="left")
+        ctk.CTkLabel(
+            guidance_title_box, text="POSITION GUIDANCE",
+            font=("Segoe UI", 9, "bold"), text_color=self.t["text_muted"]
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(
+            guidance_title_box, text="  (mechanical signal, real data only — not personalized advice)",
+            font=("Segoe UI", 9), text_color=self.t["text_muted"]
+        ).pack(side="left")
+
+        guidance_btns = ctk.CTkFrame(guidance_top, fg_color="transparent")
+        guidance_btns.pack(side="right")
+        ctk.CTkButton(
+            guidance_btns, text="Refresh", width=80, height=26,
+            font=("Segoe UI", 11, "bold"), fg_color=self.t["bg_input"],
+            text_color=self.t["text_primary"], hover_color=self.t["bg_card_hover"],
+            command=self.refresh_position_guidance
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            guidance_btns, text="Run Full Advisory Report (LLM)", width=210, height=26,
+            font=("Segoe UI", 11, "bold"), fg_color=self.t["accent"],
+            hover_color=self.t["accent"], command=self.run_position_advisory_report
+        ).pack(side="left")
+
+        self.guidance_rows_frame = ctk.CTkFrame(self.guidance_card, fg_color="transparent")
+        self.guidance_rows_frame.pack(fill="x", padx=20, pady=(8, 18))
+        self.guidance_placeholder_lbl = ctk.CTkLabel(
+            self.guidance_rows_frame, text="Awaiting refresh...",
+            font=("Segoe UI", 12), text_color=self.t["text_secondary"])
+        self.guidance_placeholder_lbl.pack(anchor="w")
+
         # ── System Log ──
         self.log_frame = ctk.CTkFrame(
             self.dash_frame, fg_color=self.t["bg_card"], corner_radius=12,
             border_color=self.t["border"], border_width=1)
-        self.log_frame.grid(row=3, column=0, columnspan=4, padx=28, pady=(8, 28), sticky="ew")
+        self.log_frame.grid(row=4, column=0, columnspan=4, padx=28, pady=(8, 28), sticky="ew")
 
         log_top = ctk.CTkFrame(self.log_frame, fg_color="transparent")
         log_top.pack(fill="x", padx=20, pady=(18, 8))
@@ -1361,6 +1676,7 @@ class PortfolioAgentApp(ctk.CTk):
             wrap="word", border_color=self.t["border"], border_width=1)
         self.console_text.pack(fill="x", padx=16, pady=(0, 18))
         self.log("AlphaMaxxin v3.0 initialized. 32 agents loaded, all paid APIs linked. System ready.")
+        self.after(3000, self.refresh_position_guidance)
 
     def _create_editor_tab(self):
         self.editor_frame = ctk.CTkFrame(
@@ -1477,14 +1793,15 @@ class PortfolioAgentApp(ctk.CTk):
             tree_container, columns=columns, show="headings",
             style="Portfolio.Treeview", selectmode="browse")
 
-        self.portfolio_tree.heading("currency", text="Currency")
-        self.portfolio_tree.heading("company", text="Company")
-        self.portfolio_tree.heading("ticker", text="Ticker")
-        self.portfolio_tree.heading("quantity", text="Qty")
-        self.portfolio_tree.heading("cost_price", text="Cost Price")
-        self.portfolio_tree.heading("market_price", text="Market Price")
-        self.portfolio_tree.heading("current_value", text="Current Value")
-        self.portfolio_tree.heading("pl_pct", text="P&L %")
+        self._portfolio_col_labels = {
+            "currency": "Currency", "company": "Company", "ticker": "Ticker",
+            "quantity": "Qty", "cost_price": "Cost Price", "market_price": "Market Price",
+            "current_value": "Current Value", "pl_pct": "P&L %",
+        }
+        self._portfolio_sort_col = None
+        self._portfolio_sort_asc = True
+        for col, label in self._portfolio_col_labels.items():
+            self.portfolio_tree.heading(col, text=label, command=lambda c=col: self.sort_portfolio_tree(c))
 
         self.portfolio_tree.column("currency", width=70, anchor="center")
         self.portfolio_tree.column("company", width=180, anchor="w")
@@ -1541,6 +1858,34 @@ class PortfolioAgentApp(ctk.CTk):
                 args=(item_id, h["ticker"], qty),
                 daemon=True
             ).start()
+
+    def sort_portfolio_tree(self, col):
+        numeric_cols = {"quantity", "cost_price", "market_price", "current_value", "pl_pct"}
+        if self._portfolio_sort_col == col:
+            self._portfolio_sort_asc = not self._portfolio_sort_asc
+        else:
+            self._portfolio_sort_col = col
+            self._portfolio_sort_asc = True
+        ascending = self._portfolio_sort_asc
+
+        def sort_key(item_id):
+            raw = self.portfolio_tree.set(item_id, col)
+            if col in numeric_cols:
+                try:
+                    return float(str(raw).replace("$", "").replace("%", "").replace(",", "").strip() or 0)
+                except ValueError:
+                    return float("-inf")
+            return str(raw).lower()
+
+        rows = sorted(self.portfolio_tree.get_children(""), key=sort_key, reverse=not ascending)
+        for index, item_id in enumerate(rows):
+            self.portfolio_tree.move(item_id, "", index)
+
+        for c, label in self._portfolio_col_labels.items():
+            arrow = ""
+            if c == col:
+                arrow = " ▲" if ascending else " ▼"
+            self.portfolio_tree.heading(c, text=label + arrow)
 
     def _fetch_row_live_price(self, item_id, ticker, qty):
         try:
@@ -1607,7 +1952,6 @@ class PortfolioAgentApp(ctk.CTk):
         dialog.configure(fg_color=self.t["bg_sidebar"])
         dialog.transient(self)
         dialog.grab_set()
-        dialog.attributes("-topmost", True)
 
         fields = {}
         labels = [("Currency (SGD/USD)", "USD"), ("Company Name", ""),
@@ -1747,6 +2091,14 @@ class PortfolioAgentApp(ctk.CTk):
         self.log("✓ Portfolio.md saved successfully!")
         self.load_portfolio_into_editor()
 
+    def _auto_sync_portfolio_on_launch(self):
+        """One-time sync on startup so Portfolio.md reflects live moomoo +
+        external_holdings.json positions before the user runs anything. Runs
+        in a background thread like the manual button; if moomoo OpenD isn't
+        reachable, sync_portfolio_from_moomoo() leaves Portfolio.md untouched
+        and we just log it — the last-synced file remains usable."""
+        threading.Thread(target=self._sync_portfolio_from_moomoo_worker, daemon=True).start()
+
     def sync_portfolio_from_moomoo_clicked(self):
         self.log("⇄ Syncing positions from moomoo OpenD...")
         threading.Thread(target=self._sync_portfolio_from_moomoo_worker, daemon=True).start()
@@ -1782,7 +2134,6 @@ class PortfolioAgentApp(ctk.CTk):
         win.geometry("380x440")
         win.configure(fg_color=self.t["bg_sidebar"])
         win.transient(self)
-        win.attributes("-topmost", True)
 
         ctk.CTkLabel(
             win, text=f"{ticker} — Market Depth", font=("Segoe UI", 15, "bold"),
@@ -1822,9 +2173,12 @@ class PortfolioAgentApp(ctk.CTk):
 
     def _fetch_order_book(self, win, ticker, bid_col, ask_col, status_lbl):
         book = get_moomoo_orderbook(ticker, depth=10)
-        if win._closed:
+        if win._closed or not self.winfo_exists():
             return
-        self.after(0, lambda: self._render_order_book(win, book, bid_col, ask_col, status_lbl))
+        try:
+            self.after(0, lambda: self._render_order_book(win, book, bid_col, ask_col, status_lbl))
+        except RuntimeError:
+            pass  # app closed while the fetch was in flight -- nothing to render into
 
     def _render_order_book(self, win, book, bid_col, ask_col, status_lbl):
         if win._closed:
@@ -1893,20 +2247,11 @@ class PortfolioAgentApp(ctk.CTk):
         self._news_last_updated.pack(side="left", padx=(0, 16))
 
         # Ticker filter dropdown
-        self._news_filter_var = ctk.StringVar(value="All Holdings")
-        self._news_filter_dropdown = ctk.CTkOptionMenu(
-            hdr_right,
-            values=["All Holdings"],
-            variable=self._news_filter_var,
-            font=("Segoe UI", 11), height=30, corner_radius=6,
-            fg_color=self.t["bg_input"],
-            button_color=self.t["bg_input"],
-            button_hover_color=self.t["bg_card_hover"],
-            text_color=self.t["text_primary"],
-            dropdown_fg_color=self.t["bg_card"],
-            dropdown_text_color=self.t["text_primary"],
-            dropdown_hover_color=self.t["bg_card_hover"],
-            width=160,
+        self._news_filter_dropdown = SleekDropdown(
+            hdr_right, values=["All Holdings"],
+            font=("Segoe UI", 11), height=30, corner_radius=8,
+            fg_color=self.t["bg_input"], text_color=self.t["text_primary"],
+            hover_color=self.t["bg_card_hover"],
             command=self._on_news_filter_change
         )
         self._news_filter_dropdown.pack(side="left", padx=(0, 10))
@@ -1927,6 +2272,7 @@ class PortfolioAgentApp(ctk.CTk):
             scrollbar_button_hover_color=self.t["scrollbar_hover"]
         )
         self._news_scroll.grid(row=1, column=0, sticky="nsew")
+        self._slim_scrollbar(self._news_scroll)
         self._news_scroll.grid_columnconfigure(0, weight=1)
 
         # State
@@ -2000,7 +2346,7 @@ class PortfolioAgentApp(ctk.CTk):
 
                 # Update ticker filter dropdown
                 ticker_options = ["All Holdings"] + sorted(set(a["ticker"] for a in articles))
-                self.after(0, lambda opts=ticker_options: self._news_filter_dropdown.configure(values=opts))
+                self.after(0, lambda opts=ticker_options: self._news_filter_dropdown.set_values(opts))
 
                 # Update last-updated label
                 now_str = datetime.datetime.now().strftime("%H:%M:%S")
@@ -2033,7 +2379,7 @@ class PortfolioAgentApp(ctk.CTk):
             widget.destroy()
         self._news_load_more_btn = None
 
-        selected_filter = self._news_filter_var.get()
+        selected_filter = self._news_filter_dropdown.get()
         if selected_filter and selected_filter != "All Holdings":
             filtered = [a for a in articles if a.get("ticker", "") == selected_filter]
         else:
@@ -2767,15 +3113,24 @@ class PortfolioAgentApp(ctk.CTk):
 
         btn_width = width - 24
         for s in suggestions:
-            symbol = s.split("  —  ")[0] if "  —  " in s else s
+            symbol, _, name = s.partition("  —  ")
             btn = ctk.CTkButton(
-                container, text=s, font=("Segoe UI", 11),
-                width=btn_width,
-                fg_color="transparent", text_color=self.t["text_primary"],
-                hover_color=self.t["bg_card_hover"], anchor="w", height=34,
-                corner_radius=6,
+                container, text="", width=btn_width,
+                fg_color="transparent", hover_color=self.t["accent_soft"],
+                anchor="w", height=36, corner_radius=8,
                 command=lambda t=symbol: self.select_suggestion(t))
-            btn.pack(fill="x", padx=4, pady=1)
+            btn.pack(fill="x", padx=4, pady=2)
+            sym_lbl = ctk.CTkLabel(
+                btn, text=symbol, font=("Segoe UI", 12, "bold"),
+                text_color=self.t["accent"], fg_color="transparent")
+            sym_lbl.place(relx=0, rely=0.5, anchor="w", x=14)
+            sym_lbl.bind("<Button-1>", lambda e, t=symbol: self.select_suggestion(t))
+            if name:
+                name_lbl = ctk.CTkLabel(
+                    btn, text=name, font=("Segoe UI", 11),
+                    text_color=self.t["text_secondary"], fg_color="transparent")
+                name_lbl.place(relx=0, rely=0.5, anchor="w", x=14 + max(60, len(symbol) * 9))
+                name_lbl.bind("<Button-1>", lambda e, t=symbol: self.select_suggestion(t))
 
         self.bind("<Button-1>", self._on_root_click, add="+")
 
@@ -2897,6 +3252,96 @@ class PortfolioAgentApp(ctk.CTk):
         webbrowser.open(f"file:///{filepath.replace(os.sep, '/')}")
         self.log(f"Report saved: {filename}")
 
+    # =========================================================================
+    # Position guidance — free mechanical signal + on-demand LLM advisory
+    # =========================================================================
+    def refresh_position_guidance(self):
+        threading.Thread(target=self._refresh_position_guidance_worker, daemon=True).start()
+
+    def _refresh_position_guidance_worker(self):
+        try:
+            guidance = get_position_guidance()
+            err = None
+        except Exception as e:
+            guidance = []
+            err = str(e)
+        self.after(0, lambda: self._render_position_guidance(guidance, err))
+
+    def _render_position_guidance(self, guidance, err=None):
+        for child in self.guidance_rows_frame.winfo_children():
+            child.destroy()
+
+        if err:
+            ctk.CTkLabel(
+                self.guidance_rows_frame, text=f"⚠ Could not compute guidance: {err}",
+                font=("Segoe UI", 12), text_color=self.t["crimson"]
+            ).pack(anchor="w")
+            return
+        if not guidance:
+            ctk.CTkLabel(
+                self.guidance_rows_frame, text="No holdings found in Portfolio.md.",
+                font=("Segoe UI", 12), text_color=self.t["text_secondary"]
+            ).pack(anchor="w")
+            return
+
+        signal_colors = {
+            "Increase / Accumulate": self.t["emerald"],
+            "Hold (Mildly Bullish)": self.t["emerald"],
+            "Hold": self.t["text_secondary"],
+            "Hold (Mildly Bearish) / Watch": self.t["gold"],
+            "Trim / Reduce": self.t["crimson"],
+        }
+
+        for row in guidance:
+            row_f = ctk.CTkFrame(self.guidance_rows_frame, fg_color=self.t["bg_input"], corner_radius=8)
+            row_f.pack(fill="x", pady=3)
+
+            left = ctk.CTkFrame(row_f, fg_color="transparent")
+            left.pack(side="left", padx=12, pady=8)
+            ctk.CTkLabel(
+                left, text=f"{row['ticker']}  ", font=("Segoe UI", 13, "bold"),
+                text_color=self.t["text_primary"]
+            ).pack(side="left")
+            pnl = row.get("pnl_pct")
+            pnl_str = f"{pnl:+.1f}% vs cost" if pnl is not None else "no cost basis"
+            rsi = row.get("rsi14")
+            rsi_str = f"RSI {rsi:.0f}" if rsi is not None else "RSI n/a"
+            ctk.CTkLabel(
+                left, text=f"{pnl_str}  |  {rsi_str}  |  {row.get('trend', 'Unknown')}",
+                font=("Segoe UI", 11), text_color=self.t["text_secondary"]
+            ).pack(side="left")
+
+            right = ctk.CTkFrame(row_f, fg_color="transparent")
+            right.pack(side="right", padx=12, pady=8)
+            ctk.CTkLabel(
+                right, text=row["signal"],
+                font=("Segoe UI", 12, "bold"),
+                text_color=signal_colors.get(row["signal"], self.t["text_primary"])
+            ).pack(side="right")
+
+    def run_position_advisory_report(self):
+        target = "Portfolio.md"
+        preset_agents = AGENT_PRESETS.get("Portfolio Medic", [])
+
+        agent_models_map = {}
+        for layer_name, agents in AGENT_LAYERS.items():
+            ui_model = self.layer_models[layer_name].get()
+            api_model = MODEL_ID_MAP.get(ui_model, "gemini-3.5-flash")
+            for agent in agents:
+                agent_models_map[agent] = api_model
+        mo_ui_model = self.mo_model_var.get()
+        agent_models_map["Master Orchestrator"] = MODEL_ID_MAP.get(mo_ui_model, "claude-sonnet-4-6")
+
+        self.log(f"{'─'*40}")
+        self.log(f"▶ Position Advisory Report — Portfolio Medic preset ({len(preset_agents)} agent(s)):")
+        for a in preset_agents:
+            self.log(f"   • {a}")
+        self.log(f"{'─'*40}")
+        self.set_working("Portfolio Medic")
+        threading.Thread(
+            target=self.worker,
+            args=("Master Orchestrator", target, preset_agents, agent_models_map), daemon=True).start()
+
     def worker(self, agent_name, target, active_agents=None, agent_models=None):
         def progress_callback(agent, status):
             """Called from the asyncio thread — must dispatch to main thread."""
@@ -2906,6 +3351,16 @@ class PortfolioAgentApp(ctk.CTk):
             ))
 
         try:
+            if (target or "").strip().lower() in ("portfolio.md", "portfolio"):
+                self.after(0, lambda: self.log("⇄ Syncing positions from moomoo OpenD..."))
+                sync_result = sync_portfolio_from_moomoo()
+                if sync_result["success"]:
+                    self.after(0, lambda: self.log(
+                        f"✓ Portfolio.md synced from moomoo — {len(sync_result['holdings'])} holdings."))
+                else:
+                    self.after(0, lambda: self.log(
+                        f"⚠ Moomoo sync skipped ({sync_result['error']}) — using last-synced Portfolio.md."))
+
             res = asyncio.run(
                 run_agent(
                     agent_name,

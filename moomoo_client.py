@@ -22,7 +22,10 @@ import threading
 import time
 
 try:
-    from moomoo import OpenQuoteContext, OpenSecTradeContext, RET_OK, TrdMarket, SecurityFirm, TrdEnv, SubType
+    from moomoo import (
+        OpenQuoteContext, OpenSecTradeContext, RET_OK, TrdMarket, SecurityFirm,
+        TrdEnv, SubType, KLType, AuType,
+    )
     _MOOMOO_AVAILABLE = True
 except ImportError:
     _MOOMOO_AVAILABLE = False
@@ -408,6 +411,61 @@ def get_moomoo_industry(ticker: str) -> str | None:
     result = _run_bounded(_fetch, timeout=_PORTFOLIO_TIMEOUT)
     if result is not None:
         _industry_cache[code] = (time.monotonic(), result)
+    return result
+
+
+_KLINE_CACHE_TTL = 3600  # seconds — daily/weekly bars don't need refreshing more than hourly
+_kline_cache: dict = {}  # (code, ktype) -> (timestamp, result)
+
+
+def get_moomoo_kline(ticker: str, ktype: str = "K_DAY", max_count: int = 260) -> list | None:
+    """
+    Historical OHLCV bars via moomoo's history K-line API, for real (not
+    LLM-estimated) technical indicator calculation. Each row is one
+    regular-session bar: {"time","open","high","low","close","volume",
+    "turnover"}. `volume` is share count; `turnover` is price x volume (a
+    value metric) — moomoo reports both as separate columns, never summed,
+    and this never touches pre/after-hours fields (those only exist on
+    intraday snapshots, not K-line bars). Returns None if unavailable.
+    """
+    if not MOOMOO_AVAILABLE or not ticker:
+        return None
+    code = _make_code(ticker)
+    cache_key = (code, ktype)
+    cached = _kline_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[0]) < _KLINE_CACHE_TTL:
+        return cached[1]
+    if not _opend_reachable():
+        return None
+
+    def _fetch():
+        ctx = OpenQuoteContext(host=MOOMOO_HOST, port=MOOMOO_PORT)
+        try:
+            kl_type = getattr(KLType, ktype, KLType.K_DAY)
+            ret, data, _page_key = ctx.request_history_kline(
+                code, ktype=kl_type, autype=AuType.QFQ, max_count=max_count,
+            )
+            if ret != RET_OK or data is None or len(data) == 0:
+                return None
+            rows = []
+            for i in range(len(data)):
+                r = data.iloc[i]
+                rows.append({
+                    "time": str(r.get("time_key", "")),
+                    "open": float(r.get("open", 0) or 0),
+                    "high": float(r.get("high", 0) or 0),
+                    "low": float(r.get("low", 0) or 0),
+                    "close": float(r.get("close", 0) or 0),
+                    "volume": float(r.get("volume", 0) or 0),
+                    "turnover": float(r.get("turnover", 0) or 0),
+                })
+            return rows
+        finally:
+            ctx.close()
+
+    result = _run_bounded(_fetch, timeout=_PORTFOLIO_TIMEOUT)
+    if result is not None:
+        _kline_cache[cache_key] = (time.monotonic(), result)
     return result
 
 
