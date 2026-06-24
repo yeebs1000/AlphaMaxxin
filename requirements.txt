@@ -30,7 +30,7 @@ pydantic-settings==2.14.1
 pydantic_core==2.46.4
 PyJWT==2.13.0
 python-multipart==0.0.32
-pywin32==312
+pywin32==312; sys_platform == "win32"
 referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.5.1
@@ -44,4 +44,12 @@ urllib3==2.7.0
 websockets==16.0
 anthropic==0.111.0
 moomoo-api==10.7.6708
+
+# These three are imported directly by gui.py/runner.py but were missing from
+# the original pip freeze — without them the app fails to even start (matplotlib,
+# used unconditionally by the Historical Chart tab) or silently can't reach
+# Gemini/OpenAI as an LLM provider.
+matplotlib==3.11.0
+google-genai==2.6.0
+openai
 
