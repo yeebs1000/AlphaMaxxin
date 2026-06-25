@@ -1753,7 +1753,7 @@ class PortfolioAgentApp(ctk.CTk):
             height=32, corner_radius=6, width=86,
             command=self.load_portfolio_into_editor).pack(side="left", padx=(0, 6))
         ctk.CTkButton(
-            btn_bar, text="⇄ Sync Moomoo", font=("Segoe UI", 11, "bold"),
+            btn_bar, text="⇄ Sync Brokers", font=("Segoe UI", 11, "bold"),
             fg_color=self.t["gold"], hover_color="#D97706", text_color="#FFF",
             height=32, corner_radius=6, width=120,
             command=self.sync_portfolio_from_moomoo_clicked).pack(side="left", padx=(0, 6))
@@ -2113,15 +2113,15 @@ class PortfolioAgentApp(ctk.CTk):
         self.load_portfolio_into_editor()
 
     def _auto_sync_portfolio_on_launch(self):
-        """One-time sync on startup so Portfolio.md reflects live moomoo +
-        external_holdings.json positions before the user runs anything. Runs
-        in a background thread like the manual button; if moomoo OpenD isn't
-        reachable, sync_portfolio_from_moomoo() leaves Portfolio.md untouched
-        and we just log it — the last-synced file remains usable."""
+        """One-time sync on startup so Portfolio.md reflects live broker
+        positions (moomoo, IBKR, Tiger) + external_holdings.json before the
+        user runs anything. Runs in a background thread like the manual
+        button; any broker that isn't reachable/configured is silently
+        skipped and we just log it — the last-synced file remains usable."""
         threading.Thread(target=self._sync_portfolio_from_moomoo_worker, daemon=True).start()
 
     def sync_portfolio_from_moomoo_clicked(self):
-        self.log("⇄ Syncing positions from moomoo OpenD...")
+        self.log("⇄ Syncing positions from connected brokers...")
         threading.Thread(target=self._sync_portfolio_from_moomoo_worker, daemon=True).start()
 
     def _sync_portfolio_from_moomoo_worker(self):
@@ -2130,10 +2130,10 @@ class PortfolioAgentApp(ctk.CTk):
 
     def _on_moomoo_sync_done(self, result):
         if result["success"]:
-            self.log(f"✓ Portfolio.md synced from moomoo — {len(result['holdings'])} holdings.")
+            self.log(f"✓ Portfolio.md synced from connected brokers — {len(result['holdings'])} holdings.")
             self.load_portfolio_into_editor()
         else:
-            self.log(f"✗ Moomoo sync failed: {result['error']}")
+            self.log(f"✗ Broker sync failed: {result['error']}")
 
     def open_order_book_for_selected(self):
         selection = self.portfolio_tree.selection()

@@ -1103,10 +1103,13 @@ def save_portfolio(holdings: list, file_path=None):
 
 
 # ---------------------------------------------------------------------------
-# Moomoo portfolio sync — auto-generates Portfolio.md from live account
-# positions instead of hand-editing it. Brokers moomoo can't see (e.g. IBKR)
-# are layered in from external_holdings.json, a small user-maintained data
-# file (quantity/cost per ticker) rather than a hardcoded note in the .md.
+# Broker portfolio sync — auto-generates Portfolio.md from live account
+# positions instead of hand-editing it. moomoo, IBKR, and Tiger are pulled
+# live (each optional — silently skipped if not installed/configured/
+# reachable); any other broker (Webull, Robinhood, etc.) is layered in from
+# external_holdings.json, a small user-maintained data file (quantity/cost
+# per ticker) rather than a hardcoded note in the .md. See README.md's
+# "Linking your broker" section for setup instructions per broker.
 # ---------------------------------------------------------------------------
 _MARKET_CCY = {"US": "USD", "SG": "SGD", "HK": "HKD", "SH": "CNY", "SZ": "CNY", "MY": "MYR", "JP": "JPY"}
 EXTERNAL_HOLDINGS_FILE = "external_holdings.json"
@@ -1125,53 +1128,94 @@ def load_external_holdings(file_path=None) -> dict:
         return json.load(f)
 
 
-def sync_portfolio_from_moomoo(external_path=None, file_path=None) -> dict:
-    """
-    Rebuilds Portfolio.md from live moomoo positions, merged with
-    external_holdings.json for brokers moomoo doesn't cover. Same ticker in
-    both sources gets combined (summed quantity, weighted-average cost) so a
-    split holding (e.g. 1 share at moomoo + 9 at IBKR) doesn't need a manual note.
-    Returns {"success": bool, "holdings": [...], "error": str|None}.
-    """
-    from moomoo_client import get_moomoo_positions, MOOMOO_AVAILABLE
-    if not MOOMOO_AVAILABLE:
-        return {"success": False, "holdings": [], "error": "moomoo-api not installed"}
-
-    positions = get_moomoo_positions()
-    if positions is None:
-        return {"success": False, "holdings": [], "error": "Could not reach moomoo OpenD — is it running and logged in?"}
-
-    merged = {}  # ticker -> holding dict
-    for p in positions:
-        code = p["code"]  # e.g. "US.VST", "HK.01810"
-        market, _, ticker = code.partition(".")
+def _merge_holding(merged: dict, ticker: str, company: str, qty: float, cost: float, currency: str):
+    """Combines a holding into `merged` keyed by ticker — same ticker from
+    two sources (e.g. 1 share at moomoo + 9 at IBKR) gets summed quantity
+    and a weighted-average cost instead of overwriting one with the other."""
+    if ticker in merged:
+        existing = merged[ticker]
+        total_qty = existing["quantity"] + qty
+        existing["cost_price"] = (
+            (existing["quantity"] * existing["cost_price"] + qty * cost) / total_qty
+            if total_qty else 0.0
+        )
+        existing["quantity"] = total_qty
+    else:
         merged[ticker] = {
-            "company": p["name"] or ticker,
+            "company": company or ticker,
             "ticker": ticker,
-            "quantity": p["qty"],
-            "cost_price": p["average_cost"],
-            "currency": _MARKET_CCY.get(market, "USD"),
+            "quantity": qty,
+            "cost_price": cost,
+            "currency": currency,
         }
 
-    for ticker, ext in load_external_holdings(external_path).items():
-        ext_qty = float(ext["quantity"])
-        ext_cost = float(ext.get("cost_price", 0))
-        if ticker in merged:
-            existing = merged[ticker]
-            total_qty = existing["quantity"] + ext_qty
-            existing["cost_price"] = (
-                (existing["quantity"] * existing["cost_price"] + ext_qty * ext_cost) / total_qty
-                if total_qty else 0.0
-            )
-            existing["quantity"] = total_qty
-        else:
-            merged[ticker] = {
-                "company": ext.get("company", ticker),
-                "ticker": ticker,
-                "quantity": ext_qty,
-                "cost_price": ext_cost,
-                "currency": ext.get("currency", "USD"),
-            }
+
+def sync_portfolio_from_moomoo(external_path=None, file_path=None) -> dict:
+    """
+    Rebuilds Portfolio.md from every live broker that's installed/configured
+    (moomoo, IBKR, Tiger), merged with external_holdings.json for any other
+    broker (Webull, Robinhood, etc. — see README.md's "Linking your broker"
+    section). Returns {"success": bool, "holdings": [...], "error": str|None}.
+    success is True if at least one source (live broker or external file)
+    produced data.
+    """
+    merged = {}  # ticker -> holding dict
+    sources_tried = 0
+    sources_ok = 0
+
+    try:
+        from moomoo_client import get_moomoo_positions, MOOMOO_AVAILABLE
+        if MOOMOO_AVAILABLE:
+            sources_tried += 1
+            positions = get_moomoo_positions()
+            if positions is not None:
+                sources_ok += 1
+                for p in positions:
+                    code = p["code"]  # e.g. "US.VST", "HK.01810"
+                    market, _, ticker = code.partition(".")
+                    _merge_holding(merged, ticker, p["name"], p["qty"], p["average_cost"],
+                                    _MARKET_CCY.get(market, "USD"))
+    except ImportError:
+        pass
+
+    try:
+        from ibkr_client import get_ibkr_positions, IBKR_AVAILABLE
+        if IBKR_AVAILABLE:
+            sources_tried += 1
+            positions = get_ibkr_positions()
+            if positions is not None:
+                sources_ok += 1
+                for p in positions:
+                    _merge_holding(merged, p["ticker"], p["company"], p["quantity"],
+                                    p["cost_price"], p["currency"])
+    except ImportError:
+        pass
+
+    try:
+        from tiger_client import get_tiger_positions, TIGER_AVAILABLE
+        if TIGER_AVAILABLE:
+            sources_tried += 1
+            positions = get_tiger_positions()
+            if positions is not None:
+                sources_ok += 1
+                for p in positions:
+                    _merge_holding(merged, p["ticker"], p["company"], p["quantity"],
+                                    p["cost_price"], p["currency"])
+    except ImportError:
+        pass
+
+    external = load_external_holdings(external_path)
+    if external:
+        sources_tried += 1
+        sources_ok += 1
+        for ticker, ext in external.items():
+            _merge_holding(merged, ticker, ext.get("company", ticker), float(ext["quantity"]),
+                            float(ext.get("cost_price", 0)), ext.get("currency", "USD"))
+
+    if sources_tried == 0:
+        return {"success": False, "holdings": [], "error": "No broker configured — see README.md's \"Linking your broker\" section."}
+    if sources_ok == 0:
+        return {"success": False, "holdings": [], "error": "Could not reach any configured broker — check it's running/logged in."}
 
     holdings = list(merged.values())
     save_portfolio(holdings, file_path=file_path)

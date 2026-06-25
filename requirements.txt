@@ -53,3 +53,9 @@ matplotlib==3.11.0
 google-genai==2.6.0
 openai
 
+# Optional broker integrations — only needed if you set the matching .env
+# keys (see .env.example and README.md's "Linking your broker" section).
+# Both fail soft (ImportError is caught) if you don't install them.
+ib_async
+tigeropen
+
