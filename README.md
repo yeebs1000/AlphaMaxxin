@@ -59,10 +59,18 @@ Re-run the setup wizard anytime to add keys you skipped the first time.
 - `runner.py` — agent orchestration logic, LLM calls
 - `moomoo_client.py` — live brokerage data (optional)
 - `news_fetcher.py` — news/sentiment fetching
-- `AGENTS_v3.0.md` — the system prompts for all 32 agents
-- `Portfolio.md` — your holdings (edit directly, or via the in-app editor)
+- `AGENTS.md` — the system prompts for all 32 agents (also split per-agent
+  under `agents/`, which is what's actually loaded at runtime)
+- `Portfolio.md` — your holdings (edit directly, or via the in-app editor;
+  gitignored, so your real data never gets committed)
+- `tests/` — manual smoke-test scripts (see `tests/README.md` — these hit
+  paid APIs and are not run automatically)
 - `AlphaMaxxinMobile/` — a separate Android app, built independently with
   Android Studio (not part of the desktop Quickstart above)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and
+[CHANGELOG.md](CHANGELOG.md) for release history. Licensed under
+[MIT](LICENSE).
 
 ## Troubleshooting
 

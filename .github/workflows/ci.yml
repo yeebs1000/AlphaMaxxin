@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  compile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Syntax/import-structure check only. No dependencies are installed and
+      # no agent/LLM calls are made here on purpose — see tests/README.md and
+      # CONTRIBUTING.md: this project's "tests" hit paid, metered APIs and are
+      # run manually, never automatically.
+      - name: Compile all Python files
+        run: python -m compileall -q .

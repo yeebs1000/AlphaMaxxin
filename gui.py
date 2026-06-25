@@ -9,7 +9,7 @@ Features:
 - Predictive dropdown for ticker/company search (Yahoo Finance)
 - HTML report rendered in the default browser (Bloomberg style)
 - In-app portfolio editing with save-to-file
-- All 32 agents from AGENTS_v3.0.md — institutional-concise report output
+- All 32 agents from AGENTS.md — institutional-concise report output
 - Animated status indicators and progress bar
 """
 import customtkinter as ctk

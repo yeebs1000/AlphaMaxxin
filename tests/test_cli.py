@@ -1,5 +1,8 @@
 import asyncio
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from runner import run_agent
 
 # Windows consoles default to cp1252, which can't encode the emoji agent

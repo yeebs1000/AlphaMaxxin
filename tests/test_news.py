@@ -1,12 +1,15 @@
 import sys, os
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 # Windows consoles default to cp1252, which can't encode the emoji/arrows
 # format_news_for_llm() embeds in its output — reconfigure to UTF-8 so this
 # script doesn't crash on a vanilla terminal.
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Load .env
-with open('.env') as f:
+# Load .env from the repo root
+with open(os.path.join(ROOT, '.env')) as f:
     for line in f:
         line = line.strip()
         if line and not line.startswith('#') and '=' in line:

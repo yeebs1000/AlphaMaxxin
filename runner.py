@@ -354,10 +354,10 @@ def get_metrics_sync(target_input="Portfolio.md") -> dict:
 # ---------------------------------------------------------------------------
 # AGENTS.md prompt extractor
 # ---------------------------------------------------------------------------
-AGENTS_FILE = "AGENTS_v3.0.md"
+AGENTS_FILE = "AGENTS.md"
 
 # Per-agent prompt files (agents/<layer>/<slug>.md, plus agents/master_orchestrator.md)
-# split out of the AGENTS_v3.0.md monolith. extract_prompt_block() looks these
+# split out of the AGENTS.md monolith. extract_prompt_block() looks these
 # up by exact-name slug first -- a single dict lookup plus reading one small
 # file, instead of re-reading and regex-scanning the entire ~4300-line
 # monolith on every agent call (the Master Orchestrator fans out up to 32 of
@@ -393,7 +393,7 @@ def extract_prompt_block(agent_name: str, file_path=None) -> str:
     """Extract the system prompt for a given agent.
 
     Looks up agents/<layer>/<slug>.md (or agents/master_orchestrator.md)
-    first. Falls back to scanning the legacy AGENTS_v3.0.md monolith if no
+    first. Falls back to scanning the legacy AGENTS.md monolith if no
     split file is found -- e.g. a custom agent added there that hasn't been
     split out yet, or an explicit file_path override."""
     if file_path is None:
@@ -726,7 +726,7 @@ async def call_llm(system_prompt: str, user_prompt: str, model: str = DEFAULT_MO
 # 429/529 rate-limit errors — previously silently dropped (empty sub-report)
 # and then papered over by the orchestrator inventing a plausible-sounding
 # excuse for the gap. Fixing the burst is the real fix; the prompt-level rule
-# (see AGENTS_v3.0.md) is to never fabricate a cause for missing data either way.
+# (see AGENTS.md) is to never fabricate a cause for missing data either way.
 #
 # None of the 32 sub-agents depend on another sub-agent's output (each only
 # receives Portfolio.md/news context — see get_workspace_state_context) — the
@@ -768,7 +768,7 @@ async def run_agent(
 ) -> str:
     """
     Execute an agent analysis.
-    Uses LLM with the prompt from AGENTS_v3.0.md + live portfolio data.
+    Uses LLM with the prompt from AGENTS.md + live portfolio data.
     active_agents: if provided AND target_name is Master Orchestrator, ONLY those agents run.
     progress_callback: optional callable(agent_name, status) for live GUI feedback.
     market_scan: True for standalone idea-generation presets (Opportunist, Macro
@@ -863,7 +863,7 @@ async def run_agent(
     else:
         return (
             f"# {target_name} — Execution Report\n\n"
-            f"**Status:** Could not find a matching prompt in AGENTS_v3.0.md for agent '{target_name}'.\n\n"
+            f"**Status:** Could not find a matching prompt in AGENTS.md for agent '{target_name}'.\n\n"
             f"Please verify the agent name matches a PROMPT heading in the agents file."
         )
 
