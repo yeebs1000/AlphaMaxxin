@@ -9,6 +9,14 @@ Claude/Gemini/OpenAI; news comes from Finnhub/Alpha Vantage.
 **Never used this before? You don't need to know what any of the above
 means.** Just follow Quickstart below — it walks you through everything.
 
+> **Disclaimer:** AlphaMaxxin is a research and educational tool, not a
+> financial advisor. Its output — including prices, targets, and any
+> "recommendation" language — is AI-generated analysis, not investment
+> advice, and may be wrong, outdated, or based on incomplete data. It never
+> places trades or transfers funds; you remain solely responsible for any
+> investment decision you make. Use at your own risk, and consult a
+> licensed financial advisor before acting on anything it produces.
+
 ---
 
 ## Quickstart (first time on this computer)
