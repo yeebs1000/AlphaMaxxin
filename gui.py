@@ -39,7 +39,7 @@ try:
         get_position_guidance
     )
 except ImportError:
-    async def run_agent(agent_name, analysis_target="Portfolio.md", active_agents=None, progress_callback=None):
+    async def run_agent(agent_name, analysis_target="Portfolio.md", active_agents=None, progress_callback=None, agent_models=None, market_scan=False, scan_regions=None):
         return f"System Stub: {agent_name} executed on {analysis_target}."
     def get_metrics_sync(target_input="Portfolio.md"):
         return {"regime": "STANDBY", "agg_score": 0.00, "overrides": "NONE", "holdings": [], "holdings_count": 0}
@@ -329,6 +329,27 @@ AGENT_PRESETS = {
         "Risk Management Agent",
         "Investment Recommendation Agent",
     ],
+}
+
+# Presets whose whole point is to scan for NEW ideas / read a market broadly,
+# not to review the user's existing holdings. Running these in the normal
+# Portfolio.md-anchored mode silently restricted every agent to "only discuss
+# tickers I already own" -- defeating the purpose of a market scan -- so these
+# get the portfolio-independent context instead (see runner.get_workspace_state_context).
+STANDALONE_SCAN_PRESETS = {
+    "Opportunist", "Macro Pulse", "Dragon Watch", "Sakura Signal",
+    "Kimchi Premium", "Frontier Run", "Quant Lab", "Insider Edge",
+}
+
+# Region-focused scan presets get the market candidate universe scoped to
+# just their region (see market_screener.py) instead of the full US/SG/HK/
+# JP/KR sweep -- a Japan-focused run shouldn't be handed Korean candidates.
+# Presets not listed here (Opportunist, Macro Pulse, Frontier Run, Quant Lab,
+# Insider Edge) scan every region.
+PRESET_SCAN_REGIONS = {
+    "Dragon Watch": ["HK"],
+    "Sakura Signal": ["JP"],
+    "Kimchi Premium": ["KR"],
 }
 
 # One-line "what does this preset do" blurb shown under each name in the
@@ -3166,7 +3187,15 @@ class PortfolioAgentApp(ctk.CTk):
 
     def trigger_orchestrator(self):
         target = self.target_input.get().strip() or "Portfolio.md"
-        
+
+        # If the currently-selected Presets entry is a standalone scan preset
+        # (Opportunist, Macro Pulse, a regional watch preset, Quant Lab,
+        # Insider Edge), run it independent of Portfolio.md -- see
+        # STANDALONE_SCAN_PRESETS and runner.get_workspace_state_context.
+        active_preset = self.preset_dropdown.get() if hasattr(self, "preset_dropdown") else None
+        market_scan = active_preset in STANDALONE_SCAN_PRESETS
+        scan_regions = PRESET_SCAN_REGIONS.get(active_preset) if market_scan else None
+
         # Gather all selected active sub-agents
         selected = [agent for agent, var in self.agent_vars.items() if var.get()]
         if not selected:
@@ -3189,6 +3218,8 @@ class PortfolioAgentApp(ctk.CTk):
         # Show a brief confirmation in the log
         self.log(f"{'─'*40}")
         self.log(f"▶ MASTER ORCHESTRATOR — {len(selected)} agent(s) queued:")
+        if market_scan:
+            self.log(f"   ⚲ Standalone scan mode ({active_preset}) — independent of Portfolio.md")
         for a in selected:
             self.log(f"   • {a} ({agent_models_map.get(a)})")
         self.log(f"{'─'*40}")
@@ -3203,7 +3234,8 @@ class PortfolioAgentApp(ctk.CTk):
             self.set_working("Orchestrator")
             threading.Thread(
                 target=self.worker,
-                args=("Master Orchestrator", target, selected, agent_models_map), daemon=True).start()
+                args=("Master Orchestrator", target, selected, agent_models_map),
+                kwargs={"market_scan": market_scan, "scan_regions": scan_regions}, daemon=True).start()
 
     def _validate_and_run_orchestrator(self, target, selected_agents, agent_models_map):
         live = fetch_live_price(target)
@@ -3342,7 +3374,7 @@ class PortfolioAgentApp(ctk.CTk):
             target=self.worker,
             args=("Master Orchestrator", target, preset_agents, agent_models_map), daemon=True).start()
 
-    def worker(self, agent_name, target, active_agents=None, agent_models=None):
+    def worker(self, agent_name, target, active_agents=None, agent_models=None, market_scan=False, scan_regions=None):
         def progress_callback(agent, status):
             """Called from the asyncio thread — must dispatch to main thread."""
             self.after(0, lambda a=agent, s=status: (
@@ -3367,7 +3399,9 @@ class PortfolioAgentApp(ctk.CTk):
                     target,
                     active_agents=active_agents,
                     progress_callback=progress_callback if active_agents else None,
-                    agent_models=agent_models
+                    agent_models=agent_models,
+                    market_scan=market_scan,
+                    scan_regions=scan_regions
                 )
             )
             if not res or not res.strip():

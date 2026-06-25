@@ -356,11 +356,54 @@ def get_metrics_sync(target_input="Portfolio.md") -> dict:
 # ---------------------------------------------------------------------------
 AGENTS_FILE = "AGENTS_v3.0.md"
 
+# Per-agent prompt files (agents/<layer>/<slug>.md, plus agents/master_orchestrator.md)
+# split out of the AGENTS_v3.0.md monolith. extract_prompt_block() looks these
+# up by exact-name slug first -- a single dict lookup plus reading one small
+# file, instead of re-reading and regex-scanning the entire ~4300-line
+# monolith on every agent call (the Master Orchestrator fans out up to 32 of
+# these concurrently per run, each previously re-parsing the same content).
+AGENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agents")
+
+_agent_file_index_cache = None
+
+
+def _slugify_agent_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def _get_agent_file_index() -> dict:
+    """Maps a slugified agent name -> its prompt file path. Built once per
+    process (just filenames, not content, so it's cheap) and cached; a
+    brand-new file added to agents/ after the app starts needs a restart to
+    be picked up, but edits to an already-indexed file's content are read
+    fresh every call, same as the old behavior."""
+    global _agent_file_index_cache
+    if _agent_file_index_cache is None:
+        index = {}
+        if os.path.isdir(AGENTS_DIR):
+            for root, _dirs, files in os.walk(AGENTS_DIR):
+                for fname in files:
+                    if fname.endswith(".md"):
+                        index[fname[:-3]] = os.path.join(root, fname)
+        _agent_file_index_cache = index
+    return _agent_file_index_cache
+
 
 def extract_prompt_block(agent_name: str, file_path=None) -> str:
-    """Extract the system prompt for a given agent from AGENTS_FILE."""
+    """Extract the system prompt for a given agent.
+
+    Looks up agents/<layer>/<slug>.md (or agents/master_orchestrator.md)
+    first. Falls back to scanning the legacy AGENTS_v3.0.md monolith if no
+    split file is found -- e.g. a custom agent added there that hasn't been
+    split out yet, or an explicit file_path override."""
+    if file_path is None:
+        match_path = _get_agent_file_index().get(_slugify_agent_name(agent_name))
+        if match_path:
+            with open(match_path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+
     agents_path = file_path if file_path is not None else AGENTS_FILE
-        
+
     if not os.path.exists(agents_path):
         return ""
     with open(agents_path, "r", encoding="utf-8") as f:
@@ -405,10 +448,63 @@ def extract_prompt_block(agent_name: str, file_path=None) -> str:
 # ---------------------------------------------------------------------------
 # Context builder
 # ---------------------------------------------------------------------------
-def get_workspace_state_context(target_input="Portfolio.md", active_agents=None) -> str:
-    """Build the user prompt with current portfolio state, market data, and live news."""
+def _get_market_scan_context(active_agents=None) -> str:
+    """Portfolio-independent context for standalone scan/idea-generation
+    presets. Existing holdings are surfaced only as a "don't recommend a
+    duplicate" list, never as the thing being analyzed."""
+    today = datetime.date.today().strftime("%B %d, %Y")
+
+    owned = []
+    try:
+        metrics = get_metrics_sync("Portfolio.md")
+        owned = [h["ticker"] for h in metrics.get("holdings", [])]
+    except Exception:
+        pass
+    owned_str = ", ".join(owned) if owned else "None on file"
+
+    context = f"""BROAD MARKET SCAN MODE (as of {today}) — independent of the user's current portfolio:
+
+This run is a standalone market/idea scan, NOT a review of the user's existing
+holdings. Do not limit your analysis to, or anchor it around, any specific
+list of tickers the user already owns — actively look for tickers/companies
+the user does NOT already own.
+
+Existing positions (context only, so you can avoid recommending a duplicate —
+this is NOT your analysis universe): {owned_str}
+"""
+
+    if active_agents:
+        active_agents_list = "\n".join([f"- {a}" for a in active_agents])
+        context += f"""
+Active Sub-Agents Enabled for this Run:
+{active_agents_list}
+"""
+
+    context += """
+IMPORTANT INSTRUCTIONS:
+- Use only real, verifiable data; do not fabricate prices, dates, or financial metrics for any company you discuss.
+- If a real-data candidate universe is provided below, ground your picks in it rather than inventing tickers from memory alone.
+- Follow the agent's Standardized Output block formatting rules strictly.
+- Include the full company name alongside each ticker symbol.
+"""
+    return context
+
+
+def get_workspace_state_context(target_input="Portfolio.md", active_agents=None, market_scan=False) -> str:
+    """Build the user prompt with current portfolio state, market data, and live news.
+
+    market_scan=True builds a portfolio-independent context instead -- used by
+    standalone/idea-generation presets (Opportunist, Macro Pulse, the regional
+    "Watch"/"Signal"/"Premium" presets, Quant Lab, Insider Edge). Without this,
+    every agent was anchored to "CURRENT PORTFOLIO STATE" and told "all analysis
+    must reference the actual tickers... listed above" -- which silently forced
+    every market scan to only ever discuss tickers the user already owns,
+    defeating the point of scanning for new ideas."""
+    if market_scan:
+        return _get_market_scan_context(active_agents=active_agents)
+
     metrics = get_metrics_sync(target_input)
-    
+
     is_single_ticker = (target_input and target_input.lower() not in ("portfolio.md", "portfolio"))
     
     def _analyst_suffix(ticker: str) -> str:
@@ -524,14 +620,15 @@ def get_technical_context_block(target_input="Portfolio.md") -> str:
     return "\n".join(blocks)
 
 
-def get_market_screening_context_block() -> str:
-    """Real-data broad-market candidate universe (US non-mega-cap, SGX, HKEX)
-    for injection into the Screener agent's prompt only — every other agent
-    stays focused on the user's own holdings."""
+def get_market_screening_context_block(regions=None) -> str:
+    """Real-data broad-market candidate universe (US non-mega-cap, SGX, HKEX,
+    Tokyo, KOSPI/KOSDAQ). Pass regions=["JP"] etc. to scope a region-focused
+    preset (Sakura Signal, Kimchi Premium, Dragon Watch) to just that market;
+    defaults to every region for the generic Screener/scan presets."""
     if not _MARKET_SCREENER_AVAILABLE:
         return ""
     try:
-        candidates = get_market_candidates()
+        candidates = get_market_candidates(regions=regions)
     except Exception:
         return ""
     return format_market_screening_context(candidates)
@@ -665,13 +762,23 @@ async def run_agent(
     target_input="Portfolio.md",
     active_agents=None,
     progress_callback=None,
-    agent_models=None
+    agent_models=None,
+    market_scan=False,
+    scan_regions=None
 ) -> str:
     """
     Execute an agent analysis.
     Uses LLM with the prompt from AGENTS_v3.0.md + live portfolio data.
     active_agents: if provided AND target_name is Master Orchestrator, ONLY those agents run.
     progress_callback: optional callable(agent_name, status) for live GUI feedback.
+    market_scan: True for standalone idea-generation presets (Opportunist, Macro
+    Pulse, the regional presets, Quant Lab, Insider Edge) -- skips the
+    Portfolio.md-anchored context entirely so agents aren't told to limit
+    themselves to tickers the user already owns.
+    scan_regions: optional list (e.g. ["JP"]) to scope the market-scan candidate
+    universe to a specific region for a regional preset (Sakura Signal ->
+    ["JP"], Kimchi Premium -> ["KR"], Dragon Watch -> ["HK"]); None scans
+    every known region.
     """
     # Determine which model to run for this agent/layer — resolved up-front so both
     # the Master Orchestrator branch and the single-agent branch below have it set.
@@ -687,12 +794,13 @@ async def run_agent(
                 progress_callback(agent, f"Starting ({idx+1}/{total})...")
             agent_model = (agent_models or {}).get(agent, DEFAULT_MODEL)
             async with _semaphore_for_model(agent_model):
-                result = await run_agent(agent, target_input, agent_models=agent_models)  # sub-agent has NO active_agents
+                # sub-agent has NO active_agents
+                result = await run_agent(agent, target_input, agent_models=agent_models, market_scan=market_scan, scan_regions=scan_regions)
                 if not result:
                     # Empty result = the call failed even after call_llm's own retry.
                     # One more attempt, after a short stagger, before accepting the gap.
                     await asyncio.sleep(1.5)
-                    result = await run_agent(agent, target_input, agent_models=agent_models)
+                    result = await run_agent(agent, target_input, agent_models=agent_models, market_scan=market_scan, scan_regions=scan_regions)
             if progress_callback:
                 progress_callback(agent, f"Done ({idx+1}/{total})")
             return result
@@ -708,7 +816,7 @@ async def run_agent(
         sub_reports_text = "\n".join(sub_reports)
 
         system_prompt = extract_prompt_block(target_name)
-        workspace_context = get_workspace_state_context(target_input, active_agents=active_agents)
+        workspace_context = get_workspace_state_context(target_input, active_agents=active_agents, market_scan=market_scan)
         user_prompt = f"{workspace_context}\n\n{sub_reports_text}"
 
         if progress_callback:
@@ -716,13 +824,13 @@ async def run_agent(
     else:
         system_prompt = extract_prompt_block(target_name)
         # Build prompt
-        prompt = get_workspace_state_context(target_input)
-        if target_name == "Technical Analysis Agent":
+        prompt = get_workspace_state_context(target_input, market_scan=market_scan)
+        if target_name == "Technical Analysis Agent" and not market_scan:
             technical_block = get_technical_context_block(target_input)
             if technical_block:
                 prompt += f"\n\n{technical_block}"
-        elif target_name == "High-Conviction Stock & Options Screener":
-            market_block = get_market_screening_context_block()
+        if market_scan or target_name == "High-Conviction Stock & Options Screener":
+            market_block = get_market_screening_context_block(regions=scan_regions if market_scan else None)
             if market_block:
                 prompt += f"\n\n{market_block}"
         prompt += f"\n\nYOUR TASK:\nExecute your designated role as '{target_name}'. Target: {target_input}."
