@@ -757,6 +757,43 @@ def _semaphore_for_model(model: str) -> asyncio.Semaphore:
 # ---------------------------------------------------------------------------
 # Main agent runner
 # ---------------------------------------------------------------------------
+# Agents whose names imply a specialized live data feed (satellite/web
+# alt-data, order book depth, congressional trading disclosures, social
+# sentiment scraping, IPO calendars, etc.) but which have no such feed wired
+# up in this codebase -- unlike the Technical Analysis Agent (Yahoo Finance
+# OHLCV), the Screener/market-scan agents (Yahoo Finance), or every agent's
+# news block (Finnhub/Alpha Vantage), all real. These agents' output is the
+# LLM's own reasoning/recall, not a verified feed, so every call gets an
+# explicit disclaimer injected into its prompt -- see README.md's "Data
+# sources & limitations" section for the full rationale.
+NO_LIVE_DATA_SOURCE_AGENTS = {
+    "Alternative Data Analyst",
+    "Central Bank Text & NLP Sentiment Analyst",
+    "Global Corporate Supply Chain Graph Mapper",
+    "Digital Footprint & Developer Momentum Scanner",
+    "Global Order Book & Liquidity Profiler",
+    "Politician Portfolio Scanner",
+    "Social Sentiment Scanner",
+    "Catalyst & Event Calendar Agent",
+    "IPO & Primary Markets Agent",
+    "Private Capital & Corporate Activity Agent",
+    "Machine Learning Alpha Extractor",
+}
+
+_NO_LIVE_DATA_DISCLAIMER = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATA SOURCE NOTICE
+This agent has no connected live data feed for its specialty (no satellite/
+web alt-data provider, order-book depth feed, congressional trading
+disclosure API, social-sentiment scraper, or similar is wired into this
+app). Produce your analysis from general/training knowledge, but state
+this limitation explicitly in your output and clearly flag which specific
+claims are inference/estimate rather than a verified, sourced fact. Do not
+present an estimate as if it came from a live feed.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+
 async def run_agent(
     target_name: str,
     target_input="Portfolio.md",
@@ -833,6 +870,8 @@ async def run_agent(
             market_block = get_market_screening_context_block(regions=scan_regions if market_scan else None)
             if market_block:
                 prompt += f"\n\n{market_block}"
+        if target_name in NO_LIVE_DATA_SOURCE_AGENTS:
+            prompt += f"\n\n{_NO_LIVE_DATA_DISCLAIMER}"
         prompt += f"\n\nYOUR TASK:\nExecute your designated role as '{target_name}'. Target: {target_input}."
 
     # Now execute the LLM if we have a prompt

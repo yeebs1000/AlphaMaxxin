@@ -19,6 +19,46 @@ means.** Just follow Quickstart below — it walks you through everything.
 
 ---
 
+## Data sources & limitations
+
+Not all 32 agents are backed by the same kind of data, and it matters for
+how much weight to put on their output.
+
+**Backed by a real, verified feed:**
+- Positions — moomoo / IBKR / Tiger Brokers (live) + `external_holdings.json` (manual)
+- Prices & technicals — moomoo (live) or Yahoo Finance (fallback)
+- News & sentiment — Finnhub / Alpha Vantage
+- Broad market screening candidates — Yahoo Finance
+
+**AI reasoning only — no connected data provider:**
+Despite their names suggesting a specialized pipeline, the following
+agents have **no live feed** wired up (no satellite/web alt-data provider,
+order-book depth feed, congressional-trading-disclosure API, social
+listening tool, etc.) — they generate analysis from the LLM's own
+training/general knowledge, not a sourced dataset:
+
+- Alternative Data Analyst
+- Central Bank Text & NLP Sentiment Analyst
+- Global Corporate Supply Chain Graph Mapper
+- Digital Footprint & Developer Momentum Scanner
+- Global Order Book & Liquidity Profiler
+- Politician Portfolio Scanner
+- Social Sentiment Scanner
+- Catalyst & Event Calendar Agent
+- IPO & Primary Markets Agent
+- Private Capital & Corporate Activity Agent
+- Machine Learning Alpha Extractor
+
+Every one of these gets an explicit data-source disclaimer injected into
+its own prompt (`runner.py`'s `NO_LIVE_DATA_SOURCE_AGENTS`), instructing it
+to flag its claims as inference rather than fact — but treat anything from
+this list as a hypothesis to verify independently, not a citation. If you
+want to wire a real provider into one of these (e.g. Quiver Quant for
+politician trading, SimilarWeb for digital footprint data), that's exactly
+the kind of contribution `CONTRIBUTING.md` welcomes.
+
+---
+
 ## Quickstart (first time on this computer)
 
 1. **Install Python** if you don't have it: [python.org/downloads](https://www.python.org/downloads/).
