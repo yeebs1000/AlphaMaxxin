@@ -1,0 +1,29 @@
+# AlphaMaxxin v2 backend dependencies.
+# The legacy desktop GUI's extra deps (customtkinter, matplotlib) stay in the
+# root requirements.txt until the v1 GUI is removed.
+fastapi
+uvicorn[standard]
+pydantic>=2
+pydantic-settings
+sse-starlette
+numpy
+tenacity
+python-dotenv
+
+# Data providers (all optional at runtime, required for full functionality)
+yfinance
+
+# LLM providers (optional at runtime — app runs deterministic-only without keys)
+anthropic
+google-genai
+openai
+
+# Brokers (optional)
+moomoo-api
+ib_async
+tigeropen
+
+# Tests
+pytest
+pytest-asyncio
+httpx

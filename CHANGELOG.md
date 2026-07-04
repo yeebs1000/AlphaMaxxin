@@ -2,7 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [Unreleased] — v2 rebuild (in progress)
+
+Deterministic-first architecture: Python skills compute every number
+(technicals, fundamentals, macro, risk, catalysts); a small set of LLM
+"domain analysts" (Macro, Fundamentals, Technicals+Options, News/Catalysts,
+Risk) interpret compact JSON and one synthesis call writes the report —
+~80% token reduction vs the 33-agent prompt pipeline. New FastAPI backend
+(`backend/`) + React frontend (`frontend/`) replace the customtkinter GUI,
+which remains available as a legacy entry point for one release (tagged
+`v1-legacy`). Agents without a real data feed become disabled "lenses"
+that show as off until a feed is wired, instead of producing disclaimed
+LLM guesswork. Offline test suite (fixtures/mocks, zero API calls) runs
+in CI.
 
 ### Added
 - `agents/` folder — agent prompts split out of the `AGENTS.md` monolith

@@ -14,6 +14,13 @@ __pycache__/
 # Generated report output (grows continuously, not source code)
 reports/
 
+# v2 local state — watchlists, settings, run history (per-user, never source)
+data_store/
+
+# Frontend
+node_modules/
+frontend/dist/
+
 # OS junk
 .DS_Store
 Thumbs.db

@@ -10,27 +10,35 @@ follow the manual steps in [README.md](README.md). Copy `.env.example` to
 
 ## Running it locally
 
+The project is mid-rebuild ("v2"): a FastAPI backend under `backend/` plus a
+React frontend under `frontend/` are replacing the legacy customtkinter GUI.
+Until the rebuild ships, the legacy app still runs with:
+
 ```
 python gui.py
 ```
 
 ## Testing changes — please read this before opening a PR
 
-This project calls paid, metered LLM APIs (Claude, Gemini, OpenAI) for its
-core agent pipeline. **Do not run the full agent pipeline (`runner.run_agent()`
-/ `call_llm()`) against a real API key just to "check" a change** — it costs
-real money per call, and 32 agents fan out per run.
+**Development and testing never call live APIs.** Not the LLMs (Claude,
+Gemini, OpenAI — paid and metered), and not the data providers or brokers
+either. All automated tests are offline: fixture data, mocked providers,
+canned LLM responses.
 
-- Prefer testing with plain Python: data fetching, indicator math, prompt-text
-  changes, mocked LLM responses, file I/O. None of that needs a live key.
-- If you genuinely need to verify an end-to-end agent call, use a Gemini key
-  (it has a free tier) rather than Claude or OpenAI.
-- `tests/test_cli.py` and `tests/test_news.py` are manual smoke-test scripts,
-  not an automated suite — `test_cli.py` invokes the real LLM pipeline and
-  `test_news.py` calls live news APIs. Neither runs in CI for this reason; run
-  them yourself, deliberately, when you need to.
+- The v2 backend suite lives in `backend/tests/` and runs free:
+  `cd backend && python -m pytest`. It sets `ALPHAMAXXIN_OFFLINE=1`, which
+  makes real providers raise if anything accidentally reaches for the
+  network — if your test trips it, add a fixture instead.
+- New deterministic code (skills, providers, report pipeline) must come with
+  offline unit tests.
+- Legacy `tests/test_cli.py` / `tests/test_news.py` are manual smoke scripts
+  that DO hit paid APIs — never run them casually and never wire them into CI.
+- End-to-end live verification (real brokers, real LLM calls) is done
+  deliberately and manually by whoever owns the API keys — never as part of
+  routine development.
 
-CI only compiles the code (`py_compile`) — it doesn't exercise the agents.
+CI compiles the whole repo and runs the offline `backend/tests` suite — it
+never exercises live agents or providers.
 
 ## Code style
 

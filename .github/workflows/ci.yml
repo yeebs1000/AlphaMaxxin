@@ -17,9 +17,28 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Syntax/import-structure check only. No dependencies are installed and
-      # no agent/LLM calls are made here on purpose — see tests/README.md and
-      # CONTRIBUTING.md: this project's "tests" hit paid, metered APIs and are
-      # run manually, never automatically.
+      # Syntax/import-structure check for the whole repo (legacy v1 GUI included).
       - name: Compile all Python files
         run: python -m compileall -q .
+
+  backend-tests:
+    runs-on: ubuntu-latest
+    env:
+      # Offline tripwire: real providers raise instead of fetching. The v2
+      # backend test suite is fully offline (fixtures + mocks) — it never
+      # calls LLMs, data providers, or brokers, so it is free to run in CI.
+      ALPHAMAXXIN_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements-backend.txt
+
+      - name: Run offline unit tests
+        working-directory: backend
+        run: python -m pytest -q
