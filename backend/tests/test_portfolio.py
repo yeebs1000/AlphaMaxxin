@@ -114,3 +114,17 @@ def test_sync_brokers_unreachable(tmp_path, monkeypatch):
                                   file_path=str(tmp_path / "p.md"))
     assert result["success"] is False
     assert "Could not reach" in result["error"]
+
+
+def test_ibkr_outer_timeout_has_margin_over_connect_timeout():
+    """Regression guard: get_ibkr_positions() previously used the same
+    constant for connectAsync's own timeout AND the outer thread-join bound.
+    ib_async's connect handshake against a real Gateway can legitimately
+    take nearly the full connect timeout on its own (it requests open/
+    completed order state as part of connecting), so with zero margin the
+    outer join gave up moments before a successful connect finished,
+    silently discarding real positions and making IBKR contribute zero
+    holdings despite being reachable. The outer bound must leave real
+    headroom for the positions() call and disconnect after connecting."""
+    from app.brokers import ibkr_client
+    assert ibkr_client._REQUEST_TIMEOUT >= ibkr_client._CONNECT_TIMEOUT + 5

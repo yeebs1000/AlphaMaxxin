@@ -28,7 +28,17 @@ IBKR_HOST = os.environ.get("IBKR_HOST", "127.0.0.1")
 # 7497 = TWS paper, 7496 = TWS live, 4002 = IB Gateway paper, 4001 = IB Gateway live.
 IBKR_PORT = int(os.environ.get("IBKR_PORT", "7497"))
 IBKR_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID", "17"))
-_REQUEST_TIMEOUT = 8  # max time we wait for connect + positions round trip
+# ib_async's connectAsync() handshake alone can legitimately take close to
+# 8 seconds against IB Gateway (it requests open/completed order state as
+# part of connecting, which reliably times out server-side before falling
+# through) — using the same 8s figure as both connectAsync's own timeout
+# AND the outer thread-join bound left ~0 margin for the positions() call
+# and disconnect after connecting, so the outer join routinely gave up a
+# moment before the connection actually finished, silently discarding a
+# successful fetch. _CONNECT_TIMEOUT bounds the handshake; _REQUEST_TIMEOUT
+# (outer) must stay comfortably larger than it.
+_CONNECT_TIMEOUT = 10
+_REQUEST_TIMEOUT = 20  # max time we wait for connect + positions round trip
 
 IBKR_AVAILABLE = _IBKR_AVAILABLE
 
@@ -71,7 +81,7 @@ def get_ibkr_positions() -> list | None:
         async def _run():
             ib = IB()
             try:
-                await ib.connectAsync(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID, timeout=_REQUEST_TIMEOUT)
+                await ib.connectAsync(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID, timeout=_CONNECT_TIMEOUT)
                 positions = ib.positions()
                 result = []
                 for p in positions:
