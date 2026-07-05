@@ -149,6 +149,9 @@ async def run_analyst(role: str, payload: dict, model: str,
 
     parsed = extract_json(result.get("text", "")) or {}
     ok = bool(parsed.get("narrative_md") or parsed.get("key_findings"))
+    error = result.get("error") if not ok else None
+    if not ok and not error and result.get("text"):
+        error = "response did not parse as the expected JSON shape"
     return {
         "role": role,
         "name": spec["name"],
@@ -159,6 +162,7 @@ async def run_analyst(role: str, payload: dict, model: str,
         "narrative_md": parsed.get("narrative_md", ""),
         "cached": was_cached,
         "model": result.get("model", model),
+        "error": error,
     }
 
 
@@ -188,10 +192,15 @@ async def run_synthesis(payload: dict, model: str,
 
     parsed = extract_json(result.get("text", "")) or {}
     markdown = parsed.get("markdown", "")
+    ok = bool(markdown)
+    error = result.get("error") if not ok else None
+    if not ok and not error and result.get("text"):
+        error = "response did not parse as the expected JSON shape"
     return {
-        "ok": bool(markdown),
+        "ok": ok,
         "markdown": markdown,
         "recommendations": parsed.get("recommendations", []),
         "cached": was_cached,
         "model": result.get("model", model),
+        "error": error,
     }

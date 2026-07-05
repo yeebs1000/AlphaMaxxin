@@ -18,6 +18,20 @@ async def test_call_llm_raises_offline():
         await router.call_llm("system", "user", model="gemini-3.5-flash")
 
 
+async def test_call_llm_no_key_reports_reason_not_silent_empty(monkeypatch):
+    # No key means no branch ever performs a real fetch (guard_online is
+    # only a flag check), so it's safe to lift the offline flag just for
+    # this assertion — this exercises the "why did nothing happen" path
+    # that used to return an unexplained empty string.
+    monkeypatch.delenv("ALPHAMAXXIN_OFFLINE", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    result = await router.call_llm("system", "user", model="gemini-3.5-flash")
+    assert result["text"] == ""
+    assert "No LLM API key configured" in result["error"]
+
+
 def test_model_id_map_and_semaphores():
     assert router.MODEL_ID_MAP["Claude 4.6 Sonnet"] == "claude-sonnet-4-6"
     assert router.semaphore_for_model("claude-sonnet-4-6") is \
@@ -110,6 +124,17 @@ async def test_run_analyst_garbage_response_not_ok():
                                      transport=transport)
     assert out["ok"] is False
     assert out["narrative_md"] == ""
+    assert "did not parse" in out["error"]
+
+
+async def test_run_analyst_surfaces_transport_error():
+    async def transport(s, u, model):
+        return {"text": "", "model": model, "in_tokens": 0, "out_tokens": 0,
+                "error": "no ANTHROPIC_API_KEY set in .env"}
+    out = await analysts.run_analyst("risk", {}, "claude-sonnet-4-6",
+                                     transport=transport)
+    assert out["ok"] is False
+    assert out["error"] == "no ANTHROPIC_API_KEY set in .env"
 
 
 async def test_run_synthesis():
@@ -122,6 +147,17 @@ async def test_run_synthesis():
     assert out["ok"] is True
     assert out["markdown"].startswith("# Report")
     assert out["recommendations"][0]["ticker"] == "AAA"
+    assert out["error"] is None
+
+
+async def test_run_synthesis_surfaces_transport_error():
+    async def transport(s, u, model):
+        return {"text": "", "model": model, "in_tokens": 0, "out_tokens": 0,
+                "error": "Claude API call failed: rate limited"}
+    out = await analysts.run_synthesis({"analysts": []}, "claude-sonnet-4-6",
+                                       transport=transport)
+    assert out["ok"] is False
+    assert out["error"] == "Claude API call failed: rate limited"
 
 
 # ---------------------------------------------------------------------------

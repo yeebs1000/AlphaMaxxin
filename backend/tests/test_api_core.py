@@ -48,6 +48,13 @@ def test_status(client):
     assert body["feeds"]["yahoo"] is True
     assert set(body["brokers"]) == {"moomoo", "ibkr", "tiger"}
     assert "llm" in body["keys"]
+    # Every broker reports connected + a human-readable reason when not —
+    # a bare true/false gave no way to tell "package missing" from
+    # "gateway not running" apart.
+    for broker in body["brokers"].values():
+        assert "connected" in broker and "reason" in broker
+        if not broker["connected"]:
+            assert broker["reason"]
 
 
 def test_portfolio_put_then_get(client):

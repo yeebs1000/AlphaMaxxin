@@ -61,11 +61,15 @@ export default function Dashboard() {
         <h3>Connections</h3>
         <div className="row">
           {status.data && [
-            ...Object.entries(status.data.keys.llm).map(([k, v]) => [`LLM: ${k}`, v]),
-            ...Object.entries(status.data.feeds).map(([k, v]) => [`Feed: ${k}`, v]),
-            ...Object.entries(status.data.brokers).map(([k, v]) => [`Broker: ${k}`, v]),
-          ].map(([name, ok]) => (
-            <span key={String(name)} className={`tag ${ok ? "buy" : "off"}`}>
+            ...Object.entries(status.data.keys.llm).map(([k, v]) =>
+              [`LLM: ${k}`, v as boolean, v ? "" : "No key set in .env"]),
+            ...Object.entries(status.data.feeds).map(([k, v]) =>
+              [`Feed: ${k}`, v as boolean, v ? "" : "No key set in .env"]),
+            ...Object.entries(status.data.brokers).map(([k, v]: [string, any]) =>
+              [`Broker: ${k}`, v.connected as boolean, v.reason || ""]),
+          ].map(([name, ok, reason]) => (
+            <span key={String(name)} className={`tag ${ok ? "buy" : "off"}`}
+                  title={reason ? String(reason) : ""}>
               {ok ? "●" : "○"} {String(name)}
             </span>
           ))}

@@ -40,7 +40,12 @@ export default function RunReport() {
   };
 
   const last = events[events.length - 1];
-  const lenses = presets.data?.lenses ?? [];
+  const selectedConfig = presets.data?.presets?.find((p: any) => p.name === preset);
+  // Only the lenses THIS preset actually invokes — the full registry also
+  // has 4 always-off "disabled lens" slots (no data feed yet) that aren't
+  // relevant to any preset's chip row.
+  const lenses = (presets.data?.lenses ?? []).filter(
+    (l: any) => selectedConfig?.analysts?.includes(l.id));
 
   return (
     <>
@@ -77,12 +82,16 @@ export default function RunReport() {
           </button>
         </div>
         <div className="row">
+          <span className="muted">Lenses for this preset:</span>
           {lenses.map((l: any) => (
             <span key={l.id} className={`tag ${l.enabled ? "buy" : "off"}`}
                   title={l.enabled ? "" : `Disabled — ${l.enable_hint || "feed not connected"}`}>
               {l.enabled ? "●" : "○"} {l.name}
             </span>
           ))}
+          <span className="tag" title="Merges the lenses above into the final report — configure its model in Settings under 'Synthesis (report writer)'.">
+            → Synthesis (final report)
+          </span>
         </div>
       </div>
 

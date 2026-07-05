@@ -11,8 +11,11 @@ external_holdings.json
 __pycache__/
 *.pyc
 
-# Generated report output (grows continuously, not source code)
-reports/
+# Generated report output (grows continuously, not source code). Leading
+# slash anchors this to the repo root — a bare "reports/" also matches
+# backend/app/reports/, the actual source package, and silently excludes
+# it from git (this happened; see git history).
+/reports/
 
 # v2 local state — watchlists, settings, run history (per-user, never source)
 data_store/

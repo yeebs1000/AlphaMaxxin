@@ -38,9 +38,10 @@ def semaphore_for_model(model: str) -> asyncio.Semaphore:
         "_default", asyncio.Semaphore(_DEFAULT_CONCURRENCY))
 
 
-def _result(text: str, model: str, in_tokens: int = 0, out_tokens: int = 0) -> dict:
+def _result(text: str, model: str, in_tokens: int = 0, out_tokens: int = 0,
+           error: str | None = None) -> dict:
     return {"text": text, "model": model,
-            "in_tokens": in_tokens, "out_tokens": out_tokens}
+            "in_tokens": in_tokens, "out_tokens": out_tokens, "error": error}
 
 
 async def call_llm(system_prompt: str, user_prompt: str,
@@ -54,7 +55,7 @@ async def call_llm(system_prompt: str, user_prompt: str,
 
     if "claude" in model.lower():
         if not anthropic_key:
-            return _result("", model)
+            return _result("", model, error="no ANTHROPIC_API_KEY set in .env")
         from anthropic import AsyncAnthropic
         client = AsyncAnthropic(api_key=anthropic_key)
         # One retry on transient 429/529 rather than dropping the analyst.
@@ -73,16 +74,17 @@ async def call_llm(system_prompt: str, user_prompt: str,
                     usage = getattr(response, "usage", None)
                     return _result(text, model,
                                    getattr(usage, "input_tokens", 0),
-                                   getattr(usage, "output_tokens", 0))
-                return _result("", model)
+                                   getattr(usage, "output_tokens", 0),
+                                   error=None if text else "Claude returned an empty response")
+                return _result("", model, error="Claude returned no content")
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if attempt == 0 and status in (429, 529):
                     await asyncio.sleep(2.0)
                     continue
                 print(f"Claude API call failed: {e}.", file=sys.stderr)
-                return _result("", model)
-        return _result("", model)
+                return _result("", model, error=f"Claude API call failed: {e}")
+        return _result("", model, error="Claude API call failed after retry")
 
     if gemini_key:
         try:
@@ -104,8 +106,11 @@ async def call_llm(system_prompt: str, user_prompt: str,
                 return _result(response.text.strip(), model,
                                getattr(meta, "prompt_token_count", 0) or 0,
                                getattr(meta, "candidates_token_count", 0) or 0)
+            return _result("", model, error="Gemini returned an empty response "
+                           f"(model '{model}' — check it's a valid, available model id)")
         except Exception as e:
             print(f"Gemini API call failed: {e}.", file=sys.stderr)
+            return _result("", model, error=f"Gemini API call failed: {e}")
 
     if openai_key:
         try:
@@ -127,7 +132,10 @@ async def call_llm(system_prompt: str, user_prompt: str,
                                openai_model,
                                getattr(usage, "prompt_tokens", 0) or 0,
                                getattr(usage, "completion_tokens", 0) or 0)
+            return _result("", openai_model, error="OpenAI returned no choices")
         except Exception as e:
             print(f"OpenAI API call failed: {e}.", file=sys.stderr)
+            return _result("", model, error=f"OpenAI API call failed: {e}")
 
-    return _result("", model)
+    return _result("", model, error="No LLM API key configured "
+                   "(set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in .env)")

@@ -94,6 +94,30 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     assert lenses["ml_alpha"]["enabled"] is False
 
 
+async def test_synthesis_failure_falls_back_to_analyst_narratives(tmp_path, portfolio_target):
+    """A failed synthesis call must never produce a blank report — the
+    fallback assembles whatever analysts succeeded, and names why."""
+    async def flaky_transport(system_prompt, user_prompt, model):
+        if "Synthesis" in system_prompt:
+            return {"text": "not json at all", "model": model, "in_tokens": 5,
+                    "out_tokens": 5, "error": "Claude API call failed: 529 overloaded"}
+        return {"text": json.dumps({"stance": "neutral", "confidence": "medium",
+                                    "key_findings": ["f"], "narrative_md": "All good."}),
+                "model": model, "in_tokens": 100, "out_tokens": 50}
+
+    report_id = await run_report(
+        _registry(), {"preset": "Lite", "target": {"kind": "portfolio"}},
+        lambda *a, **k: None, reports_dir=str(tmp_path / "reports"),
+        transport=flaky_transport)
+    report = store.load_report(report_id, str(tmp_path / "reports"))
+    synthesis = report["sections"]["synthesis"]
+    assert synthesis["ok"] is False
+    assert "529 overloaded" in synthesis["markdown"]
+    assert "All good." in synthesis["markdown"]  # surviving analyst narrative included
+    html = store.load_report_html(report_id, str(tmp_path / "reports"))
+    assert "529 overloaded" in html  # visible in the rendered page, not just JSON
+
+
 async def test_ticker_target_run(tmp_path):
     calls = []
     report_id = await run_report(
