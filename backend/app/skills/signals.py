@@ -101,6 +101,38 @@ def aggregate(ticker: str, technical_snap: dict | None,
             "coverage": round(coverage, 2)}
 
 
+def recommendation_block(ticker: str, technical_snap: dict | None,
+                         fundamentals_snap: dict | None = None,
+                         atr_stop: float | None = None,
+                         composite: dict | None = None) -> dict | None:
+    """Standardized entry/target/stop block — every number here is derived
+    from an already-computed real field (ATR, analyst consensus target, the
+    sizing skill's ATR stop), never invented by an LLM. The synthesis
+    prompt narrates this block; it doesn't set its own price levels."""
+    price = (technical_snap or {}).get("last_close")
+    atr = (technical_snap or {}).get("atr14")
+    if price is None or atr is None:
+        return None
+    analyst_target = ((fundamentals_snap or {}).get("analyst") or {}).get("target_mean")
+    bull_target = round(analyst_target, 2) if analyst_target else round(price + 3 * atr, 2)
+    base_target = round((price + bull_target) / 2, 2)
+    stop = atr_stop if atr_stop is not None else round(price - 2 * atr, 2)
+    rr_base = round((base_target - price) / (price - stop), 2) if price > stop else None
+    return {
+        "ticker": ticker,
+        "current_price": round(price, 2),
+        "entry_range": [round(price - 0.5 * atr, 2), round(price + 0.5 * atr, 2)],
+        "base_target": base_target,
+        "bull_target": bull_target,
+        "bear_stop": stop,
+        "risk_reward_base": rr_base,
+        "conviction": (composite or {}).get("conviction", "low"),
+        "composite_score": (composite or {}).get("composite_score"),
+        "target_source": "analyst consensus" if analyst_target
+                         else "ATR-projected (no analyst target available this run)",
+    }
+
+
 def position_guidance(holdings: list[dict], snapshots: dict,
                       quotes: dict | None = None) -> list[dict]:
     """Free mechanical per-holding guidance (replaces gui.py's Position

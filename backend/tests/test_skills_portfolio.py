@@ -135,6 +135,37 @@ def test_position_guidance_pl():
 
 
 # ---------------------------------------------------------------------------
+# recommendation_block
+# ---------------------------------------------------------------------------
+def test_recommendation_block_uses_analyst_target():
+    tech = {"last_close": 100.0, "atr14": 5.0}
+    fund = {"analyst": {"target_mean": 130.0}}
+    block = signals.recommendation_block("AAA", tech, fund, atr_stop=88.0,
+                                         composite={"conviction": "high", "composite_score": 60})
+    assert block["current_price"] == 100.0
+    assert block["entry_range"] == [97.5, 102.5]
+    assert block["bull_target"] == 130.0
+    assert block["base_target"] == pytest.approx(115.0)   # midpoint(100, 130)
+    assert block["bear_stop"] == 88.0                     # from sizing, not recomputed
+    assert block["risk_reward_base"] == pytest.approx((115 - 100) / (100 - 88))
+    assert block["target_source"] == "analyst consensus"
+    assert block["conviction"] == "high"
+
+
+def test_recommendation_block_falls_back_to_atr_projection():
+    tech = {"last_close": 50.0, "atr14": 2.0}
+    block = signals.recommendation_block("BBB", tech, fundamentals_snap=None, atr_stop=None)
+    assert block["bull_target"] == pytest.approx(56.0)   # price + 3*ATR
+    assert block["bear_stop"] == pytest.approx(46.0)     # price - 2*ATR, since no sizing given
+    assert "no analyst target" in block["target_source"]
+
+
+def test_recommendation_block_none_without_technicals():
+    assert signals.recommendation_block("CCC", None) is None
+    assert signals.recommendation_block("CCC", {"last_close": 100.0}) is None  # no ATR
+
+
+# ---------------------------------------------------------------------------
 # portfolio_construction
 # ---------------------------------------------------------------------------
 def _summary(weights: dict) -> dict:

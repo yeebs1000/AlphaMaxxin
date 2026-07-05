@@ -162,6 +162,17 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit) -> dict:
                                                 out.get("composites", {}),
                                                 out.get("technicals"))
 
+    if out.get("technicals"):
+        sizing_by_ticker = {s["ticker"]: s for s in out.get("sizing", [])}
+        out["recommendation_blocks"] = {}
+        for t in tickers:
+            block = signals_skill.recommendation_block(
+                t, out["technicals"].get(t), out.get("fundamentals", {}).get(t),
+                sizing_by_ticker.get(t, {}).get("atr_stop"),
+                out.get("composites", {}).get(t))
+            if block:
+                out["recommendation_blocks"][t] = block
+
     if "options_math" in wanted and registry.yfinance.available:
         emit("skills", "Summarizing option chains", 68)
         out["options"] = {}
@@ -217,6 +228,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "technicals_options":
         return {**common, "technicals": skills.get("technicals"),
                 "composites": skills.get("composites"),
+                "recommendation_blocks": skills.get("recommendation_blocks"),
                 "options": skills.get("options"), "screen": skills.get("screen")}
     if role == "news_catalysts":
         return {**common, "news": skills.get("news"),
@@ -225,6 +237,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "risk":
         return {**common, "risk": skills.get("risk"),
                 "sizing": skills.get("sizing"),
+                "recommendation_blocks": skills.get("recommendation_blocks"),
                 "composites": skills.get("composites")}
     raise KeyError(role)
 
@@ -266,7 +279,9 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     synthesis_payload = {
         "analysts": results,
         "composites": skills.get("composites"),
+        "recommendation_blocks": skills.get("recommendation_blocks"),
         "summary": skills.get("summary") or {"tickers": [h["ticker"] for h in holdings]},
+        "regional_signals": (skills.get("macro") or {}).get("regional_signals"),
         "lens_status": lens_status,
         "run_config": run_config,
     }

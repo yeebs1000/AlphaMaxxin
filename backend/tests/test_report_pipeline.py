@@ -81,6 +81,11 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
         {"fundamentals", "technicals_options", "risk"}
     assert report["sections"]["synthesis"]["recommendations"][0]["ticker"] == "MSFT"
     assert report["sections"]["skills"]["technicals"]["MSFT"]["last_close"] == 400.0
+    # recommendation_blocks computed from real technicals+fundamentals (analyst
+    # target_mean=480 from the fixture) and reached the technicals_options payload
+    reco = report["sections"]["skills"]["recommendation_blocks"]["MSFT"]
+    assert reco["bull_target"] == 480.0
+    assert reco["target_source"] == "analyst consensus"
     assert report["costs"]["calls"] == 4
     html = store.load_report_html(report_id, str(tmp_path / "reports"))
     assert "Verdict" in html
@@ -181,3 +186,10 @@ def test_render_tables_and_headers():
     assert "<h1>Title</h1>" in html
     assert "<strong>Score:</strong>" in html
     assert "not financial advice" in html
+    assert "Georgia" in html                    # serif headline font stack
+    assert '<img class="logo"' in html           # single-ticker gets a logo
+
+
+def test_render_no_logo_for_portfolio_target():
+    html = render_report_html("Lite — Portfolio", "# Report\nbody")
+    assert '<img class="logo"' not in html

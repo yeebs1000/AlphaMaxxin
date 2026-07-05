@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Dashboard from "./pages/Dashboard";
 import Portfolio from "./pages/Portfolio";
 import Charts from "./pages/Charts";
@@ -20,20 +20,39 @@ const PAGES = {
   "⚙️ Settings": Settings,
 } as const;
 
+type Theme = "light" | "dark";
+
+function useTheme() {
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem("theme") as Theme) || "light");
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+  return [theme, setTheme] as const;
+}
+
 export default function App() {
   const [page, setPage] = useState<keyof typeof PAGES>("📊 Dashboard");
+  const [theme, setTheme] = useTheme();
   const Page = PAGES[page];
   return (
     <>
-      <nav className="sidebar">
+      <div className="sidebar">
         <h1>Alpha<span>Maxxin</span></h1>
-        {Object.keys(PAGES).map((name) => (
-          <button key={name} className={name === page ? "active" : ""}
-                  onClick={() => setPage(name as keyof typeof PAGES)}>
-            {name}
-          </button>
-        ))}
-      </nav>
+        <nav>
+          {Object.keys(PAGES).map((name) => (
+            <button key={name} className={name === page ? "active" : ""}
+                    onClick={() => setPage(name as keyof typeof PAGES)}>
+              {name}
+            </button>
+          ))}
+        </nav>
+        <button className="theme-toggle"
+                onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
+          {theme === "light" ? "🌙 Dark mode" : "☀️ Light mode"}
+        </button>
+      </div>
       <main className="main"><Page /></main>
     </>
   );

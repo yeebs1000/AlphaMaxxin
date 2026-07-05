@@ -173,6 +173,46 @@ def test_macro_handles_missing_fred():
     assert snap["regime_flags"]["curve_inverted"] is False
 
 
+def test_macro_expanded_fred_series_and_balance_sheet_pace():
+    fred = FakeFred({
+        "T10YIE": _fred_series("T10YIE", [2.3]),
+        # 14 weekly WALCL prints: contracting by 100 over the last 13
+        "WALCL": _fred_series("WALCL", [7000 - i * 10 for i in range(14)]),
+        "PCEPI": _fred_series("PCEPI", [120 + i * 0.2 for i in range(13)]),
+        "ICSA": _fred_series("ICSA", [220000]),
+    })
+    snap = macro.compute_macro(fred, FakeYahoo())
+    assert snap["rates"]["breakeven_10y"] == pytest.approx(2.3)
+    assert snap["labor"]["jobless_claims"] == 220000
+    assert snap["inflation"]["pce_yoy"] is not None
+    assert snap["fed_balance_sheet"]["change_13w"] == pytest.approx(-130)
+    assert snap["regime_flags"]["fed_balance_sheet_contracting"] is True
+
+
+def test_macro_regional_signals_from_real_momentum():
+    def bars(start, end, n=63):
+        closes = [start + (end - start) * i / (n - 1) for i in range(n)]
+        return {"closes": closes, "highs": closes, "lows": closes, "volumes": [1] * n}
+
+    yahoo = FakeYahoo(ohlcv_data={
+        "^HSI": bars(100, 116),      # +16% over 3mo -> strong positive
+        "CNY=X": bars(100, 101),     # +1% FX move
+    })
+    snap = macro.compute_macro(FakeFred(), yahoo, regions=["HK"])
+    signal = snap["regional_signals"][0]
+    assert signal["region"] == "HK"
+    assert signal["index_momentum_3m_pct"] == pytest.approx(16.0)
+    assert signal["composite_score"] > 0
+    assert -2.0 <= signal["composite_score"] <= 2.0
+
+
+def test_macro_regional_signal_none_without_data():
+    snap = macro.compute_macro(FakeFred(), FakeYahoo(), regions=["JP"])
+    signal = snap["regional_signals"][0]
+    assert signal["index_momentum_3m_pct"] is None
+    assert signal["composite_score"] is None
+
+
 # ---------------------------------------------------------------------------
 # fundamentals
 # ---------------------------------------------------------------------------

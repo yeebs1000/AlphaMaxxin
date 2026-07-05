@@ -1,4 +1,28 @@
-:root {
+:root,
+[data-theme="light"] {
+  --bg: #faf9f5;
+  --panel: #ffffff;
+  --panel-2: #f3f1e9;
+  --border: rgba(30, 28, 20, 0.09);
+  --border-strong: rgba(30, 28, 20, 0.16);
+  --text: #211f1b;
+  --muted: #6b6a63;
+  --muted-2: #9b9a92;
+  /* AlphaMaxxin's brand accent stays red in both themes; everything else
+     follows the workbench's palette (muted panels, subtle borders). */
+  --brand: #a34620;
+  --brand-bg: #f4e3d8;
+  --up: #227a4e;
+  --up-bg: #e4f3ea;
+  --down: #b23a32;
+  --down-bg: #fbeae8;
+  --warn: #8a5a0f;
+  --warn-bg: #fbf0dc;
+  --report-bg: #faf9f5;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
   --bg: #0b0b0c;
   --panel: #17181a;
   --panel-2: #1d1e21;
@@ -7,8 +31,6 @@
   --text: #f4f4f3;
   --muted: #a6a6a3;
   --muted-2: #706f6c;
-  /* AlphaMaxxin's brand accent stays red, everything else follows the
-     workbench's muted dark palette (subtle borders, low-saturation panels). */
   --brand: #e94560;
   --brand-bg: rgba(233, 69, 96, 0.14);
   --up: #34c77b;
@@ -17,7 +39,10 @@
   --down-bg: rgba(241, 89, 79, 0.14);
   --warn: #f4a945;
   --warn-bg: rgba(244, 169, 69, 0.14);
+  --report-bg: #0b0b0c;
+  color-scheme: dark;
 }
+
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -27,15 +52,18 @@ body {
   color: var(--text);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  transition: background-color .15s ease, color .15s ease;
 }
 #root { display: flex; min-height: 100vh; }
 
 .sidebar {
   width: 210px; flex-shrink: 0; background: var(--panel);
   padding: 20px 12px; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
 }
 .sidebar h1 { font-size: 1.05rem; font-weight: 650; padding: 0 10px 16px; }
 .sidebar h1 span { color: var(--brand); }
+.sidebar nav { flex: 1; }
 .sidebar button {
   display: block; width: 100%; text-align: left; padding: 8px 12px;
   margin: 2px 0; background: none; border: 1px solid transparent; border-radius: 7px;
@@ -43,6 +71,13 @@ body {
 }
 .sidebar button:hover { border-color: var(--border); color: var(--text); }
 .sidebar button.active { background: var(--panel-2); color: var(--text); font-weight: 600; }
+.theme-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--muted); font: inherit; font-size: 0.85rem;
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--brand); color: var(--text); }
 
 .main { flex: 1; padding: 24px 32px; max-width: 1100px; }
 .main h2 { font-size: 1.2rem; font-weight: 650; margin-bottom: 16px; }
@@ -107,4 +142,4 @@ input:focus, select:focus, button:focus-visible { outline: none; border-color: v
 .news-card.bullish { border-left-color: var(--up); }
 .news-card.bearish { border-left-color: var(--down); }
 iframe.report { width: 100%; height: 75vh; border: 1px solid var(--border);
-                border-radius: 10px; background: #0b0b0c; }
+                border-radius: 10px; background: var(--report-bg); }

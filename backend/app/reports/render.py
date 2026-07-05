@@ -138,33 +138,44 @@ def render_report_html(title: str, report_text: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{safe_title} | AlphaMaxxin</title>
 <style>
+  /* Light, editorial "research note" palette — deliberately distinct from
+     the app shell's theme (which the user toggles separately): a report
+     is a document meant to be read, printed, or shared, not a UI. Serif
+     headlines (Georgia/Palatino, no external font fetch needed) for a
+     consulting-report feel; the red brand accent stays consistent with
+     the rest of AlphaMaxxin either way. */
   :root {{
-    --bg: #0b0b0c; --panel: #17181a; --panel-2: #1d1e21;
-    --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.16);
-    --text: #f4f4f3; --muted: #a6a6a3;
-    --brand: #e94560; --brand-bg: rgba(233,69,96,.14);
+    --bg: #faf9f5; --panel: #ffffff; --panel-2: #f3f1e9;
+    --border: rgba(30,28,20,.10); --text: #211f1b; --muted: #6b6a63;
+    --brand: #c0293f; --brand-bg: #f9e6e9;
   }}
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  body {{ font-family: -apple-system, 'Segoe UI', Inter, sans-serif;
-         background: var(--bg); color: var(--text); line-height: 1.65; font-size: 15px; }}
+  body {{ font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.65; font-size: 15.5px; }}
+  h1, h2, h3, .header h1 {{
+    font-family: Georgia, 'Palatino Linotype', 'Iowan Old Style', 'Times New Roman', serif;
+  }}
   .header {{ display: flex; align-items: center; justify-content: space-between; gap: 16px;
-            padding: 28px 40px; border-bottom: 1px solid var(--border); }}
-  .header h1 {{ font-size: 1.35rem; font-weight: 650; color: var(--text); }}
+            padding: 32px 44px; background: var(--panel); border-bottom: 3px solid var(--brand); }}
+  .header h1 {{ font-size: 1.5rem; font-weight: 700; color: var(--text); }}
   .header .meta {{ color: var(--muted); font-size: 0.82rem; margin-top: 6px; }}
   .logo {{ height: 56px; width: 56px; border-radius: 10px; object-fit: contain;
-          background: white; padding: 4px; flex-shrink: 0; }}
-  .content {{ max-width: 860px; margin: 0 auto; padding: 32px 24px 72px; }}
-  .content h1, .content h2 {{ color: var(--text); margin: 26px 0 10px;
-    border-bottom: 1px solid var(--border); padding-bottom: 6px; font-size: 1.15rem; }}
-  .content h3 {{ color: var(--text); margin: 18px 0 8px; font-size: 1.02rem; }}
-  p, li {{ margin: 6px 0; color: var(--text); }}
+          background: white; padding: 4px; flex-shrink: 0;
+          border: 1px solid var(--border); }}
+  .content {{ max-width: 860px; margin: 0 auto; padding: 36px 24px 72px; }}
+  .content h1, .content h2 {{ color: var(--text); margin: 30px 0 12px;
+    border-bottom: 2px solid var(--brand); padding-bottom: 6px; font-size: 1.3rem;
+    font-weight: 700; }}
+  .content h3 {{ color: var(--text); margin: 20px 0 8px; font-size: 1.08rem; font-weight: 700; }}
+  p, li {{ margin: 7px 0; color: var(--text); }}
   li {{ margin-left: 24px; }}
   strong {{ color: var(--text); }}
-  table {{ border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 0.9rem;
-          background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  table {{ border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.9rem;
+          background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
           overflow: hidden; }}
-  th {{ background: var(--panel-2); color: var(--muted); text-align: left;
-       text-transform: uppercase; font-size: 0.72rem; letter-spacing: .3px; }}
+  th {{ background: var(--panel-2); color: var(--text); text-align: left;
+       text-transform: uppercase; font-size: 0.72rem; letter-spacing: .3px;
+       font-weight: 700; }}
   th, td {{ border-bottom: 1px solid var(--border); padding: 9px 12px; }}
   tr:last-child td {{ border-bottom: none; }}
   .footnote {{ color: var(--muted); font-size: 0.82rem; }}

@@ -20,7 +20,11 @@ SERIES = {
     "ust10y": "DGS10",             # 10-year treasury constant maturity, daily %
     "cpi": "CPIAUCSL",             # CPI all urban, index (YoY computed in skill)
     "core_cpi": "CPILFESL",        # CPI ex food & energy, index
+    "pce": "PCEPI",                # PCE price index (the Fed's preferred inflation gauge)
     "unemployment": "UNRATE",      # unemployment rate, monthly %
+    "jobless_claims": "ICSA",      # initial jobless claims, weekly
+    "breakeven_10y": "T10YIE",     # 10-year breakeven inflation, daily %
+    "fed_balance_sheet": "WALCL",  # Fed total assets, weekly $ (QE/QT pace)
 }
 
 

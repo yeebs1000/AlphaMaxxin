@@ -15,6 +15,10 @@ A JSON envelope containing:
 - `sizing`: deterministic suggestions per holding — current vs suggested
   weight, action (trim/accumulate/reduce/hold), ATR-based stop, and the
   mechanical rationale (cap breaches, signal tilts).
+- `recommendation_blocks`: the same standardized entry/target/stop block the
+  Technicals analyst narrates — use its `bear_stop` and `risk_reward_base`
+  as the exit/reward anchors when you validate a sizing suggestion; don't
+  compute a competing stop level.
 - `composites`: per-ticker composite signals with conviction.
 - `run_config`.
 
