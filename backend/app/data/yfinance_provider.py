@@ -36,6 +36,35 @@ _INFO_FIELDS = {
     "currentPrice": "price",
 }
 
+# Fields that must be numeric downstream (skills/fundamentals.py compares
+# them with < / >). yfinance's .info dict occasionally serializes an
+# undefined ratio (e.g. P/E with negative trailing earnings) as the
+# string "Infinity" instead of a numeric type — sanitize at the boundary
+# so a string never reaches a numeric comparison further down.
+_NUMERIC_FIELDS = {
+    "pe_ttm", "fwd_pe", "ps", "ev_ebitda", "peg", "rev_yoy", "eps_yoy",
+    "gross_margin", "op_margin", "net_margin", "debt_to_equity",
+    "current_ratio", "fcf", "dividend_yield", "payout_ratio",
+    "target_mean", "analyst_count", "market_cap", "price",
+}
+
+
+def sanitize_info(ticker: str, info: dict) -> dict | None:
+    """Extract _INFO_FIELDS from a raw yfinance .info dict, dropping any
+    numeric field yfinance handed back as a non-numeric type (its most
+    common failure mode is the string "Infinity" for an undefined ratio,
+    e.g. trailing P/E with negative earnings)."""
+    raw = {"ticker": ticker}
+    for src, dst in _INFO_FIELDS.items():
+        value = info.get(src)
+        if value is None:
+            continue
+        if dst in _NUMERIC_FIELDS:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue  # e.g. "Infinity" — drop rather than pass a bad type on
+        raw[dst] = value
+    return raw if len(raw) > 1 else None
+
 
 class YFinanceProvider:
     name = "yfinance"
@@ -67,12 +96,7 @@ class YFinanceProvider:
             # yfinance returns a near-empty dict for unknown symbols
             if not any(k in info for k in _INFO_FIELDS):
                 return None
-        raw = {"ticker": ticker}
-        for src, dst in _INFO_FIELDS.items():
-            value = info.get(src)
-            if value is not None:
-                raw[dst] = value
-        return raw if len(raw) > 1 else None
+        return sanitize_info(ticker, info)
 
     def option_chain(self, ticker: str) -> dict | None:
         """Nearest-expiry option chain (US tickers only):

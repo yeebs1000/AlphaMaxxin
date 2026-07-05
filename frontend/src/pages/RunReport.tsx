@@ -99,7 +99,7 @@ export default function RunReport() {
         <div className="panel">
           <h3>Progress</h3>
           <div className="progress-bar"><div style={{ width: `${last?.pct ?? 0}%` }} /></div>
-          <p className="muted">{last?.message}</p>
+          {!error && <p className="muted">{last?.message}</p>}
           {error && <div className="error">{error}</div>}
           {reportId && (
             <a className="btn" href={`/api/reports/${reportId}/html`} target="_blank"

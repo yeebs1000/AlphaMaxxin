@@ -242,6 +242,34 @@ def test_fundamentals_none_without_sources():
     assert fundamentals.compute_fundamentals("CCC", None, None) is None
 
 
+def test_fundamentals_finnhub_drops_non_numeric_sentinel():
+    """Finnhub's free tier occasionally emits a sentinel string ("NM") for
+    an undefined ratio instead of omitting the field — must be dropped, not
+    passed into a numeric comparison in _quality_flags."""
+    metrics = {"metric": {"peTTM": "NM", "debtToEquity": "N/A",
+                          "revenueGrowthTTMYoy": 12.0}}
+    snap = fundamentals.compute_fundamentals("DDD", None, metrics)
+    assert snap["valuation"]["pe_ttm"] is None
+    assert snap["balance"]["debt_to_equity"] is None
+    assert snap["quality_flags"] == []  # never raises comparing None
+
+
+def test_yfinance_sanitize_info_drops_infinity_string():
+    """yfinance's real-world failure mode: an undefined ratio (e.g. P/E
+    with negative trailing earnings) serialized as the string "Infinity"
+    instead of a numeric type — this crashed _quality_flags's `pe > 60`."""
+    from app.data.yfinance_provider import sanitize_info
+    info = {"trailingPE": "Infinity", "forwardPE": 25.0, "currentPrice": 50.0,
+            "sector": "Technology"}
+    raw = sanitize_info("AAA", info)
+    assert "pe_ttm" not in raw          # non-numeric dropped
+    assert raw["fwd_pe"] == 25.0        # numeric fields still pass through
+    assert raw["sector"] == "Technology"  # string fields unaffected
+    snap = fundamentals.compute_fundamentals("AAA", raw)
+    assert snap["valuation"]["pe_ttm"] is None
+    assert snap["quality_flags"] == []  # would have raised before the fix
+
+
 # ---------------------------------------------------------------------------
 # politician trades
 # ---------------------------------------------------------------------------

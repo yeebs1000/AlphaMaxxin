@@ -83,8 +83,13 @@ def _from_finnhub(ticker: str, metrics_response: dict) -> dict:
     raw = {}
     for src, dst in _FINNHUB_KEYS.items():
         value = metric.get(src)
-        if value is not None:
-            raw[dst] = value
+        # Every _FINNHUB_KEYS destination is numeric — Finnhub's free tier
+        # occasionally emits a sentinel string ("NM", "N/A") instead of
+        # omitting the field; drop it rather than pass a bad type on (same
+        # class of bug as yfinance's "Infinity" strings).
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        raw[dst] = value
     # Finnhub reports margins/growth as percentages (e.g. 42.5); yfinance as
     # fractions (0.425) — normalize to fractions.
     for pct_field in ("rev_yoy", "eps_yoy", "gross_margin", "op_margin",
