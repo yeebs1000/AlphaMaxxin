@@ -16,6 +16,7 @@ DEFAULT_SETTINGS = {
         "technicals_options": DEFAULT_MODEL,
         "news_catalysts": DEFAULT_MODEL,
         "risk": DEFAULT_MODEL,
+        "order_book": DEFAULT_MODEL,
         "synthesis": "claude-sonnet-4-6",  # the one call worth the better tier
     },
     "llm_cache_enabled": True,

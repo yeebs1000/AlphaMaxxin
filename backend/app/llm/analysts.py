@@ -43,6 +43,14 @@ ANALYSTS = {
         "prompt_file": "risk.md",
         "required_feeds": ["yahoo"],
     },
+    # Promoted from DISABLED_LENSES once a real feed existed: moomoo's L2
+    # order-book subscription (needs OpenD running + an L2 entitlement).
+    # Automatically shows disabled again whenever that feed is down.
+    "order_book": {
+        "name": "Order Book & Liquidity Profiler",
+        "prompt_file": "order_book.md",
+        "required_feeds": ["orderbook"],
+    },
 }
 
 # v1 agents with no feasible free feed — kept as ready-to-enable slots.
@@ -55,12 +63,6 @@ DISABLED_LENSES = {
         "prompt_file": "lenses_disabled/alternative_data.md",
         "required_feeds": ["altdata"],
         "enable_hint": "wire a satellite/web alt-data provider (e.g. SimilarWeb) into app/data/",
-    },
-    "order_book": {
-        "name": "Global Order Book & Liquidity Profiler",
-        "prompt_file": "lenses_disabled/order_book.md",
-        "required_feeds": ["orderbook"],
-        "enable_hint": "wire a level-2 depth feed (e.g. moomoo order book subscription) into app/data/",
     },
     "ml_alpha": {
         "name": "Machine Learning Alpha Extractor",

@@ -192,18 +192,25 @@ def test_lens_status_disabled_lenses_off_by_default():
     feed_status = {"yahoo": True, "finnhub": True, "alphavantage": False,
                    "fred": True, "yfinance": True}
     lenses = {l["id"]: l for l in analysts.lens_status(feed_status)}
-    assert len(lenses) == 9  # 5 analysts + 4 disabled lenses
+    assert len(lenses) == 9  # 6 analysts + 3 disabled lenses
     for analyst_id in analysts.ANALYSTS:
-        assert lenses[analyst_id]["enabled"] is True
+        if analyst_id == "order_book":
+            # promoted analyst, but its moomoo-L2 feed is down here
+            assert lenses[analyst_id]["enabled"] is False
+        else:
+            assert lenses[analyst_id]["enabled"] is True
     for lens_id, spec in analysts.DISABLED_LENSES.items():
         assert lenses[lens_id]["enabled"] is False
         assert lenses[lens_id]["enable_hint"]
+
+
 
 
 def test_lens_flips_on_when_feed_wired():
     feed_status = {"yahoo": True, "fred": True, "orderbook": True}
     lenses = {l["id"]: l for l in analysts.lens_status(feed_status)}
     assert lenses["order_book"]["enabled"] is True     # feed wired → lens on
+    assert lenses["order_book"]["kind"] == "analyst"   # promoted, no longer a stub
     assert lenses["ml_alpha"]["enabled"] is False
 
 

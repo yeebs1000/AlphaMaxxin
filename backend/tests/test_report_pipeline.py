@@ -160,7 +160,8 @@ def test_all_presets_reference_valid_lenses_and_skills():
     from app.llm.analysts import ANALYSTS
     valid_skills = {"technicals", "fundamentals", "macro", "risk", "news",
                     "catalysts", "screener", "signals", "performance",
-                    "portfolio_construction", "options_math", "politician_trades"}
+                    "portfolio_construction", "options_math", "politician_trades",
+                    "order_book"}
     assert len(PRESETS) == 10  # Lite + the 9 full v1 presets
     for preset in list_presets():
         assert set(preset["analysts"]) <= set(ANALYSTS)

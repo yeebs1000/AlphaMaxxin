@@ -7,6 +7,7 @@ const ROLE_LABELS: Record<string, string> = {
   macro: "Macro Analyst", fundamentals: "Fundamentals Analyst",
   technicals_options: "Technicals & Options Analyst",
   news_catalysts: "News & Catalysts Analyst", risk: "Risk Analyst",
+  order_book: "Order Book & Liquidity Profiler",
   synthesis: "Synthesis (report writer)",
 };
 

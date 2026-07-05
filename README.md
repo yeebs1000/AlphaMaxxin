@@ -46,14 +46,22 @@ every call.
 
 ### Lens transparency
 
-Some lenses have **no feasible free data feed** yet: Alternative Data, Order
-Book & Liquidity, ML Alpha, Digital Footprint. They are **disabled, not
-deleted** — each shows in the UI with what would enable it, and wiring a
-real provider into `backend/app/data/` flips it on. Disabled lenses cost
-zero tokens and are listed in every report's Coverage section, so you always
-know what the analysis could and couldn't see. Wiring one up is a great
-first contribution — see the ready-to-enable specs in
+Some lenses have **no feasible free data feed** yet: Alternative Data,
+ML Alpha, Digital Footprint. They are **disabled, not deleted** — each
+shows in the UI with what would enable it, and wiring a real provider into
+`backend/app/data/` flips it on. Disabled lenses cost zero tokens and are
+listed in every report's Coverage section, so you always know what the
+analysis could and couldn't see. Wiring one up is a great first
+contribution — see the ready-to-enable specs in
 `backend/app/llm/prompts/lenses_disabled/`.
+
+The **Order Book & Liquidity Profiler** is the proof this works: it started
+as a disabled lens and is now live — it reads real Level 2 depth through
+moomoo's OpenD gateway (requires an L2 market-data entitlement on your
+moomoo account) and runs in the Portfolio Medic and Quant Lab presets,
+judging spreads, book imbalance, and execution feasibility from actual
+resting orders. When OpenD is down or a market isn't entitled, it shows as
+disabled again and costs nothing.
 
 ---
 
@@ -169,7 +177,7 @@ backend/
                   (disk-cached, rate-limited, offline-tripwired in tests)
   app/brokers/    read-only clients: moomoo, IBKR, Tiger
   app/llm/        router (Claude/Gemini/OpenAI), 6 role prompts,
-                  4 disabled-lens specs, response cache, cost meter
+                  3 disabled-lens specs, response cache, cost meter
   app/reports/    pipeline, presets, storage, HTML rendering, SSE progress
   tests/          offline test suite — fixtures and mocks, zero API calls
 frontend/         Vite + React dashboard
