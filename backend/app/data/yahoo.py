@@ -138,13 +138,20 @@ class YahooProvider:
 
     def resolve_symbol(self, query: str) -> tuple[str | None, str]:
         """Resolve a portfolio ticker / company name to (yahoo_symbol, display_name),
-        using the alias maps first, then the search API."""
+        using the alias maps first, then a bare-numeric HKEX rule, then the
+        search API. (moomoo, when connected, is checked before Yahoo entirely
+        — see data.live_quote — so this numeric-HK fallback mainly matters
+        when moomoo/OpenD isn't running.)"""
         for alias, mapped in TICKER_ALIASES.items():
             if query.lower() == alias.lower():
                 return mapped, query
         for sgx_code, info in SGX_TICKER_MAP.items():
             if query.lower() in (sgx_code.lower(), info["name"].lower()):
                 return info["yahoo"], info["name"]
+        stripped = query.strip()
+        if stripped.isdigit():
+            # HKEX Yahoo symbols are 4-digit, e.g. "01810" -> "1810.HK".
+            return f"{int(stripped):04d}.HK", query
         results = self.search(query, max_results=1)
         if results:
             return results[0]["symbol"], results[0]["name"]

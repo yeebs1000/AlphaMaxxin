@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from .. import portfolio as pf
+from ..data.live_quote import live_quote, live_ohlcv
 from ..skills import performance, signals, technicals, fx as fx_skill
 from .deps import get_registry
 
@@ -19,8 +20,7 @@ class Holding(BaseModel):
 def _quotes_for(registry, holdings: list[dict]) -> dict:
     quotes = {}
     for h in holdings:
-        symbol, _ = registry.yahoo.resolve_symbol(h["ticker"])
-        quote = registry.yahoo.quote(symbol) if symbol else None
+        quote = live_quote(h["ticker"], registry.yahoo)
         if quote:
             quotes[h["ticker"]] = quote
     return quotes
@@ -73,15 +73,13 @@ def portfolio_guidance(registry=Depends(get_registry)):
     holdings = pf.parse_portfolio()
     snaps, quotes = {}, {}
     for h in holdings:
-        symbol, _ = registry.yahoo.resolve_symbol(h["ticker"])
-        if not symbol:
-            continue
-        quote = registry.yahoo.quote(symbol)
+        ticker = h["ticker"]
+        quote = live_quote(ticker, registry.yahoo)
         if quote:
-            quotes[h["ticker"]] = quote
-        daily = registry.yahoo.ohlcv(symbol, "1d", "1y")
-        higher = registry.yahoo.ohlcv(symbol, "1wk", "2y")
-        snap = technicals.compute_snapshot(h["ticker"], daily, higher)
+            quotes[ticker] = quote
+        daily = live_ohlcv(ticker, registry.yahoo, "1d", "1y")
+        higher = live_ohlcv(ticker, registry.yahoo, "1wk", "2y")
+        snap = technicals.compute_snapshot(ticker, daily, higher)
         if snap:
-            snaps[h["ticker"]] = snap
+            snaps[ticker] = snap
     return {"guidance": signals.position_guidance(holdings, snaps, quotes)}

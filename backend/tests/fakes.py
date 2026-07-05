@@ -25,6 +25,8 @@ class FakeYahoo:
         return self._fx.get(ccy)
 
     def resolve_symbol(self, query):
+        if query.strip().isdigit():
+            return f"{int(query.strip()):04d}.HK", query
         results = self.search(query, max_results=1)
         if results:
             return results[0]["symbol"], results[0]["name"]

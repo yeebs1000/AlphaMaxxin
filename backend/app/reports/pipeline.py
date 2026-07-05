@@ -9,6 +9,7 @@ import datetime
 
 from .. import portfolio as pf
 from .. import watchlists as wl
+from ..data.live_quote import live_quote, live_ohlcv
 from ..llm import analysts as an
 from ..skills import (
     technicals, fundamentals as fund_skill, macro as macro_skill, risk as risk_skill,
@@ -49,14 +50,13 @@ def _fetch_per_ticker(registry, holdings: list[dict], emit) -> dict:
     for h in holdings:
         ticker = h["ticker"]
         symbol, _ = registry.yahoo.resolve_symbol(ticker)
-        if not symbol:
-            continue
-        data["symbols"][ticker] = symbol
-        quote = registry.yahoo.quote(symbol)
+        if symbol:
+            data["symbols"][ticker] = symbol
+        quote = live_quote(ticker, registry.yahoo)
         if quote:
             data["quotes"][ticker] = quote
-        data["daily"][ticker] = registry.yahoo.ohlcv(symbol, "1d", "1y")
-        data["weekly"][ticker] = registry.yahoo.ohlcv(symbol, "1wk", "2y")
+        data["daily"][ticker] = live_ohlcv(ticker, registry.yahoo, "1d", "1y")
+        data["weekly"][ticker] = live_ohlcv(ticker, registry.yahoo, "1wk", "2y")
     for ccy in {h.get("currency", "USD") for h in holdings} | \
                {q.get("currency", "USD") for q in data["quotes"].values()}:
         if ccy != "USD":

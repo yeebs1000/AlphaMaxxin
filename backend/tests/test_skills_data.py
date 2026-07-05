@@ -45,6 +45,35 @@ def test_fetch_and_merge_prefers_av_then_finnhub():
     assert providers == {"av story one", "finnhub story two"}
 
 
+def test_fetch_and_merge_runs_tickers_concurrently():
+    """A slow fetch for one ticker must not delay the others behind it in
+    a serial queue — this was the root cause of the news tab taking minutes
+    for a full portfolio."""
+    import threading
+    import time
+
+    tickers = [f"T{i}" for i in range(6)]
+    start_times = {}
+    barrier = threading.Barrier(len(tickers), timeout=2)
+
+    class SlowFinnhub:
+        available = True
+
+        def news(self, ticker, days=7):
+            start_times[ticker] = time.monotonic()
+            barrier.wait()  # every ticker's fetch must be in-flight at once
+            return [art(ticker, f"{ticker} story", 100)]
+
+    registry = make_registry(finnhub=SlowFinnhub(), alphavantage=FakeAlphaVantage())
+    merged = news.fetch_and_merge(registry, tickers, max_per_ticker=5)
+    assert len(merged) == len(tickers)
+    assert max(start_times.values()) - min(start_times.values()) < 1.0
+
+
+def test_fetch_and_merge_empty_tickers():
+    assert news.fetch_and_merge(make_registry(), []) == []
+
+
 def test_digest_prioritizes_sentiment_and_aggregates():
     arts = [art("AAA", "neutral latest", 300),
             art("AAA", "bullish older", 100, "bullish", 0.6),

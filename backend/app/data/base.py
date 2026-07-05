@@ -8,6 +8,7 @@ development and testing never call live APIs.
 import hashlib
 import json
 import os
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -108,7 +109,9 @@ TTL_CALENDAR = 12 * 3600
 
 
 class RateLimiter:
-    """Blocking token bucket: at most `max_calls` per `per_seconds` window."""
+    """Blocking token bucket: at most `max_calls` per `per_seconds` window.
+    Thread-safe — providers are now called from a thread pool (news fetches
+    run one thread per ticker) and share one limiter instance per provider."""
 
     def __init__(self, max_calls: int, per_seconds: float,
                  clock: Callable[[], float] = time.monotonic,
@@ -118,16 +121,18 @@ class RateLimiter:
         self._clock = clock
         self._sleeper = sleeper
         self._stamps: list[float] = []
+        self._lock = threading.Lock()
 
     def acquire(self) -> None:
-        now = self._clock()
-        cutoff = now - self.per_seconds
-        self._stamps = [s for s in self._stamps if s > cutoff]
-        if len(self._stamps) >= self.max_calls:
-            wait = self._stamps[0] + self.per_seconds - now
-            if wait > 0:
-                self._sleeper(wait)
-                now = self._clock()
-                cutoff = now - self.per_seconds
-                self._stamps = [s for s in self._stamps if s > cutoff]
-        self._stamps.append(self._clock())
+        with self._lock:
+            now = self._clock()
+            cutoff = now - self.per_seconds
+            self._stamps = [s for s in self._stamps if s > cutoff]
+            if len(self._stamps) >= self.max_calls:
+                wait = self._stamps[0] + self.per_seconds - now
+                if wait > 0:
+                    self._sleeper(wait)
+                    now = self._clock()
+                    cutoff = now - self.per_seconds
+                    self._stamps = [s for s in self._stamps if s > cutoff]
+            self._stamps.append(self._clock())

@@ -2,6 +2,7 @@
 compact JSON block for the News/Catalysts analyst. Port of
 news_fetcher.fetch_portfolio_news's merge logic, minus the fetching.
 """
+from concurrent.futures import ThreadPoolExecutor
 
 
 def merge_articles(per_ticker_articles: dict[str, list[dict]],
@@ -27,16 +28,27 @@ def fetch_and_merge(registry, tickers: list[str], max_per_ticker: int = 5,
                     days: int = 7) -> list[dict]:
     """Fetch news for tickers from every available provider (Alpha Vantage
     preferred — it has sentiment — then Finnhub) and merge. Providers degrade
-    to [] when unconfigured, so this works with any subset of keys."""
-    per_ticker: dict[str, list[dict]] = {}
-    for ticker in tickers:
+    to [] when unconfigured, so this works with any subset of keys.
+
+    Per-ticker fetches run concurrently (matching v1's threading approach) —
+    each provider's own rate limiter still caps total request rate, but a
+    slow/rate-limited ticker no longer blocks every other ticker behind it
+    in a strict queue, which is what made this take minutes for a full
+    portfolio."""
+    def fetch_one(ticker: str) -> list[dict]:
         articles: list[dict] = []
         if registry.alphavantage.available:
             articles.extend(registry.alphavantage.news(ticker)[:max_per_ticker])
         if registry.finnhub.available and len(articles) < max_per_ticker:
             articles.extend(
                 registry.finnhub.news(ticker, days=days)[:max_per_ticker - len(articles)])
-        per_ticker[ticker] = articles
+        return articles
+
+    if not tickers:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(tickers), 10)) as pool:
+        results = pool.map(fetch_one, tickers)
+    per_ticker = dict(zip(tickers, results))
     return merge_articles(per_ticker, max_per_ticker=max_per_ticker)
 
 

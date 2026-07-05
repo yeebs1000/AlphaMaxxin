@@ -21,6 +21,8 @@ import socket
 import threading
 import time
 
+from ..data.base import guard_online
+
 try:
     from moomoo import (
         OpenQuoteContext, OpenSecTradeContext, RET_OK, TrdMarket, SecurityFirm,
@@ -57,6 +59,7 @@ def _opend_reachable() -> bool:
     classification in one metrics refresh) while OpenD is down. Cooled down
     via the shared _last_connect_failure timestamp so a burst of calls only
     pays the socket-connect cost once per _CONNECT_COOLDOWN window."""
+    guard_online()  # every OpenD-touching function routes through here first
     global _last_connect_failure
     if _last_connect_failure and (time.monotonic() - _last_connect_failure) < _CONNECT_COOLDOWN:
         return False
