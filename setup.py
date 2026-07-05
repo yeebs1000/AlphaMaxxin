@@ -267,8 +267,6 @@ def main():
     print("To launch the app later, run:")
     print("    python run.py")
     print("from inside this folder (opens in your browser).")
-    print("The old desktop app is still available for one more release:")
-    print("    python run.py --legacy")
     print()
     if ask_yes_no("Launch AlphaMaxxin right now?", default_yes=True):
         subprocess.run([sys.executable, os.path.join(HERE, "run.py")], cwd=HERE)

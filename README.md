@@ -74,9 +74,6 @@ API keys (all optional), builds the web UI, and offers to launch.
 **Already set up?** `python run.py` — the app opens in your browser at
 `http://127.0.0.1:8000`.
 
-The previous desktop app is still included for one more release:
-`python run.py --legacy`.
-
 ---
 
 ## What you'll be asked for
@@ -176,9 +173,11 @@ backend/
   app/reports/    pipeline, presets, storage, HTML rendering, SSE progress
   tests/          offline test suite — fixtures and mocks, zero API calls
 frontend/         Vite + React dashboard
-run.py            launcher (python run.py; --legacy for the old desktop app)
-gui.py, runner.py, agents/   legacy v1 app (kept one release, tag: v1-legacy)
+run.py            launcher (python run.py)
 ```
+
+The previous customtkinter desktop app (gui.py/runner.py/agents/) has been
+removed; it's preserved at the `v1-legacy` git tag if you ever need it.
 
 ## Contributing & testing
 

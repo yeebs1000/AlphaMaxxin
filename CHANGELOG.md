@@ -10,10 +10,9 @@ Deterministic-first architecture: Python skills compute every number
 Risk) interpret compact JSON and one synthesis call writes the report —
 ~80–95% token reduction vs the 33-agent prompt pipeline. New FastAPI
 backend (`backend/`) + React frontend (`frontend/`) replace the
-customtkinter GUI, which remains available for one release via
-`python run.py --legacy` (tagged `v1-legacy`). Agents without a real data
-feed become disabled "lenses" that show as off until a feed is wired,
-instead of producing disclaimed LLM guesswork.
+customtkinter GUI entirely (removed; preserved at the `v1-legacy` git tag).
+Agents without a real data feed become disabled "lenses" that show as off
+until a feed is wired, instead of producing disclaimed LLM guesswork.
 
 ### Added (v2)
 - 13 deterministic skills with known-answer tests (indicator math verified

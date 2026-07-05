@@ -10,13 +10,14 @@ follow the manual steps in [README.md](README.md). Copy `.env.example` to
 
 ## Running it locally
 
-The project is mid-rebuild ("v2"): a FastAPI backend under `backend/` plus a
-React frontend under `frontend/` are replacing the legacy customtkinter GUI.
-Until the rebuild ships, the legacy app still runs with:
+FastAPI backend under `backend/`, React frontend under `frontend/`:
 
 ```
-python gui.py
+python run.py
 ```
+
+(The previous customtkinter desktop app has been removed; it's preserved
+at the `v1-legacy` git tag.)
 
 ## Testing changes — please read this before opening a PR
 

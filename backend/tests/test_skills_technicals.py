@@ -1,6 +1,7 @@
-"""Technicals: v1↔v2 parity on identical synthetic bars (the v1 module is
-pure math at import time — no network), plus hand-computed sanity values.
-Options math: known Black-Scholes value and put-call parity."""
+"""Technicals: hand-computed sanity values (parity with the removed v1
+technical_indicators.py was verified during the v2 migration and no longer
+needs a standing test now that v1 is gone). Options math: known
+Black-Scholes value and put-call parity."""
 import math
 import random
 
@@ -26,27 +27,6 @@ def synthetic_ohlcv(n=260, seed=42):
 
 
 BARS = synthetic_ohlcv()
-
-
-def test_parity_with_v1_implementation():
-    import technical_indicators as v1  # legacy root module, pure math
-    closes, highs = BARS["closes"], BARS["highs"]
-    lows, volumes = BARS["lows"], BARS["volumes"]
-
-    assert v2.sma(closes, 50) == pytest.approx(v1.sma(closes, 50))
-    assert v2.ema(closes, 20) == pytest.approx(v1.ema(closes, 20))
-    assert v2.rsi(closes) == pytest.approx(v1.rsi(closes))
-    m1, m2 = v1.macd(closes), v2.macd(closes)
-    for k in ("macd", "signal", "histogram"):
-        assert m2[k] == pytest.approx(m1[k])
-    b1, b2 = v1.bollinger_bands(closes), v2.bollinger_bands(closes)
-    for k in ("upper", "mid", "lower", "bandwidth_pct"):
-        assert b2[k] == pytest.approx(b1[k])
-    assert v2.atr(highs, lows, closes) == pytest.approx(v1.atr(highs, lows, closes))
-    vp1 = v1.volume_profile(highs, lows, closes, volumes)
-    vp2 = v2.volume_profile(highs, lows, closes, volumes)
-    for k in ("poc", "vah", "val"):
-        assert vp2[k] == pytest.approx(vp1[k])
 
 
 def test_hand_computed_values():

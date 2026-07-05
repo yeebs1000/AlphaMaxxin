@@ -1,7 +1,6 @@
-"""Launch AlphaMaxxin v2: FastAPI backend + browser UI.
+"""Launch AlphaMaxxin: FastAPI backend + browser UI.
 
     python run.py            # start backend on 127.0.0.1:8000, open browser
-    python run.py --legacy   # run the old customtkinter desktop app instead
     python run.py --check    # boot the app offline and exit (CI/setup smoke test)
 """
 import os
@@ -15,10 +14,6 @@ URL = "http://127.0.0.1:8000"
 
 
 def main():
-    if "--legacy" in sys.argv:
-        subprocess.run([sys.executable, os.path.join(HERE, "gui.py")], cwd=HERE)
-        return
-
     if "--check" in sys.argv:
         os.environ["ALPHAMAXXIN_OFFLINE"] = "1"
         sys.path.insert(0, HERE)
