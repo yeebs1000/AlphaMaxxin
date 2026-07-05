@@ -2,19 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased] — v2 rebuild (in progress)
+## [Unreleased] — v2 rebuild
 
 Deterministic-first architecture: Python skills compute every number
 (technicals, fundamentals, macro, risk, catalysts); a small set of LLM
 "domain analysts" (Macro, Fundamentals, Technicals+Options, News/Catalysts,
 Risk) interpret compact JSON and one synthesis call writes the report —
-~80% token reduction vs the 33-agent prompt pipeline. New FastAPI backend
-(`backend/`) + React frontend (`frontend/`) replace the customtkinter GUI,
-which remains available as a legacy entry point for one release (tagged
-`v1-legacy`). Agents without a real data feed become disabled "lenses"
-that show as off until a feed is wired, instead of producing disclaimed
-LLM guesswork. Offline test suite (fixtures/mocks, zero API calls) runs
-in CI.
+~80–95% token reduction vs the 33-agent prompt pipeline. New FastAPI
+backend (`backend/`) + React frontend (`frontend/`) replace the
+customtkinter GUI, which remains available for one release via
+`python run.py --legacy` (tagged `v1-legacy`). Agents without a real data
+feed become disabled "lenses" that show as off until a feed is wired,
+instead of producing disclaimed LLM guesswork.
+
+### Added (v2)
+- 13 deterministic skills with known-answer tests (indicator math verified
+  against the v1 implementation; Black-Scholes against textbook values).
+- Data providers: Yahoo, Finnhub (news + earnings/IPO calendars + metrics),
+  Alpha Vantage, FRED (new), yfinance fundamentals (new), congressional
+  PTR disclosure dumps (new) — disk-cached outside the repo, rate-limited,
+  and offline-tripwired in tests.
+- Watchlists, report history with in-app viewing, SSE run progress,
+  per-role model routing, LLM response cache, and a cost meter.
+- React dashboard (8 pages) replacing the customtkinter GUI.
+- Fully offline test suite (89 tests) wired into CI, plus a frontend
+  build job and an offline boot smoke test (`python run.py --check`).
 
 ### Added
 - `agents/` folder — agent prompts split out of the `AGENTS.md` monolith

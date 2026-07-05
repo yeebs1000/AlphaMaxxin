@@ -49,6 +49,10 @@ API_KEYS = [
      "https://www.alphavantage.co/support/#api-key",
      False,
      "Additional news/sentiment source, used alongside Finnhub."),
+    ("FRED_API_KEY", "FRED (Federal Reserve data)",
+     "https://fred.stlouisfed.org/docs/api/api_key.html",
+     False,
+     "US macro data (rates, CPI, jobs) for the Macro analyst. Works without a key too, just slower."),
 ]
 
 
@@ -92,6 +96,12 @@ def step_install_dependencies():
         [sys.executable, "-m", "pip", "install", "-r", REQUIREMENTS_PATH],
         cwd=HERE,
     )
+    backend_reqs = os.path.join(HERE, "backend", "requirements-backend.txt")
+    if result.returncode == 0 and os.path.exists(backend_reqs):
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", backend_reqs],
+            cwd=HERE,
+        )
     if result.returncode != 0:
         print()
         print("WARNING: Something went wrong installing dependencies (see the error above).")
@@ -195,6 +205,28 @@ def step_moomoo_note():
     print("you decide you want it.")
 
 
+def step_frontend_build():
+    """Build the web UI if Node.js is around and it hasn't been built yet."""
+    dist = os.path.join(HERE, "frontend", "dist")
+    frontend = os.path.join(HERE, "frontend")
+    if os.path.isdir(dist) or not os.path.isdir(frontend):
+        return
+    npm = "npm.cmd" if os.name == "nt" else "npm"
+    try:
+        subprocess.run([npm, "--version"], capture_output=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        print()
+        print("NOTE: Node.js/npm not found, so the web UI can't be built yet.")
+        print("Install Node.js from https://nodejs.org, then run:")
+        print("    cd frontend && npm install && npm run build")
+        print("(The backend API works without it; the browser UI needs it.)")
+        return
+    print()
+    if ask_yes_no("Build the web interface now? (needs internet, ~1 min)", default_yes=True):
+        subprocess.run([npm, "install", "--no-audit", "--no-fund"], cwd=frontend)
+        subprocess.run([npm, "run", "build"], cwd=frontend)
+
+
 def step_portfolio_check():
     banner("STEP 5 of 5 -- Your portfolio file")
     if os.path.exists(PORTFOLIO_PATH):
@@ -229,15 +261,17 @@ def main():
     step_configure_env()
     step_moomoo_note()
     step_portfolio_check()
+    step_frontend_build()
 
     banner("SETUP COMPLETE")
     print("To launch the app later, run:")
-    print("    python gui.py")
-    print("from inside this folder.")
+    print("    python run.py")
+    print("from inside this folder (opens in your browser).")
+    print("The old desktop app is still available for one more release:")
+    print("    python run.py --legacy")
     print()
     if ask_yes_no("Launch AlphaMaxxin right now?", default_yes=True):
-        gui_path = os.path.join(HERE, "gui.py")
-        subprocess.run([sys.executable, gui_path], cwd=HERE)
+        subprocess.run([sys.executable, os.path.join(HERE, "run.py")], cwd=HERE)
 
 
 if __name__ == "__main__":

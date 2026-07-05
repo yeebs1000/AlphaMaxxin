@@ -1,17 +1,17 @@
 # AlphaMaxxin
 
-A desktop app that runs a 32-agent AI research pipeline over your stock
-portfolio and produces investment reports — entry/exit prices, position
-sizing, risk scenarios, options strategies, the works. Live prices and
-account data optionally come from moomoo; AI analysis comes from
-Claude/Gemini/OpenAI; news comes from Finnhub/Alpha Vantage.
+A local, multi-lens investment analyst. Python computes every number —
+technicals, fundamentals, macro, risk, catalysts — from real data feeds, and
+a small set of AI "analyst lenses" interprets those numbers into a single
+high-conviction research report on your **portfolio**, any **ticker**, or a
+**watchlist**. Broker positions sync live from moomoo / IBKR / Tiger.
 
-**Never used this before? You don't need to know what any of the above
-means.** Just follow Quickstart below — it walks you through everything.
+**Never used this before?** Just follow Quickstart below — it walks you
+through everything.
 
 > **Disclaimer:** AlphaMaxxin is a research and educational tool, not a
 > financial advisor. Its output — including prices, targets, and any
-> "recommendation" language — is AI-generated analysis, not investment
+> "recommendation" language — is AI-assisted analysis, not investment
 > advice, and may be wrong, outdated, or based on incomplete data. It never
 > places trades or transfers funds; you remain solely responsible for any
 > investment decision you make. Use at your own risk, and consult a
@@ -19,127 +19,126 @@ means.** Just follow Quickstart below — it walks you through everything.
 
 ---
 
-## Data sources & limitations
+## How it works (v2 architecture)
 
-Not all 32 agents are backed by the same kind of data, and it matters for
-how much weight to put on their output.
+```
+data feeds ──▶ deterministic skills ──▶ 5 analyst lenses ──▶ 1 synthesis call
+(free APIs)    (pure Python, $0)        (cheap LLM, JSON in)   (writes the report)
+```
 
-**Backed by a real, verified feed:**
-- Positions — moomoo / IBKR / Tiger Brokers (live) + `external_holdings.json` (manual)
-- Prices & technicals — moomoo (live) or Yahoo Finance (fallback)
-- News & sentiment — Finnhub / Alpha Vantage
-- Broad market screening candidates — Yahoo Finance
+1. **Skills** (pure Python, zero AI cost): RSI/MACD/Bollinger/ATR/volume
+   profile, valuation ratios and quality flags, FRED macro regime, VaR/beta/
+   concentration, earnings & IPO calendars, market screening, news digests,
+   congressional-trade lookups, position sizing with ATR stops.
+2. **Analyst lenses** (one cheap LLM call each): Macro, Fundamentals,
+   Technicals & Options, News & Catalysts, Risk. Each receives only compact
+   JSON from the skills and is prompt-bound to **never invent a number** —
+   missing data is reported as missing.
+3. **Synthesis** (one better-tier call): merges the lenses into a
+   decision-ready report — verdict, recommendation table, per-lens case,
+   explicit conflicts, and a coverage section listing what the report could
+   *not* see.
 
-**AI reasoning only — no connected data provider:**
-Despite their names suggesting a specialized pipeline, the following
-agents have **no live feed** wired up (no satellite/web alt-data provider,
-order-book depth feed, congressional-trading-disclosure API, social
-listening tool, etc.) — they generate analysis from the LLM's own
-training/general knowledge, not a sourced dataset:
+A full portfolio report costs a few cents, not tens of dollars: ~15–30K
+tokens versus the ~300K of the old 33-agent pipeline. Identical re-runs
+within 24h are served from a local cache for free, and a cost meter tracks
+every call.
 
-- Alternative Data Analyst
-- Central Bank Text & NLP Sentiment Analyst
-- Global Corporate Supply Chain Graph Mapper
-- Digital Footprint & Developer Momentum Scanner
-- Global Order Book & Liquidity Profiler
-- Politician Portfolio Scanner
-- Social Sentiment Scanner
-- Catalyst & Event Calendar Agent
-- IPO & Primary Markets Agent
-- Private Capital & Corporate Activity Agent
-- Machine Learning Alpha Extractor
+### Lens transparency
 
-Every one of these gets an explicit data-source disclaimer injected into
-its own prompt (`runner.py`'s `NO_LIVE_DATA_SOURCE_AGENTS`), instructing it
-to flag its claims as inference rather than fact — but treat anything from
-this list as a hypothesis to verify independently, not a citation. If you
-want to wire a real provider into one of these (e.g. Quiver Quant for
-politician trading, SimilarWeb for digital footprint data), that's exactly
-the kind of contribution `CONTRIBUTING.md` welcomes.
+Some lenses have **no feasible free data feed** yet: Alternative Data, Order
+Book & Liquidity, ML Alpha, Digital Footprint. They are **disabled, not
+deleted** — each shows in the UI with what would enable it, and wiring a
+real provider into `backend/app/data/` flips it on. Disabled lenses cost
+zero tokens and are listed in every report's Coverage section, so you always
+know what the analysis could and couldn't see. Wiring one up is a great
+first contribution — see the ready-to-enable specs in
+`backend/app/llm/prompts/lenses_disabled/`.
 
 ---
 
 ## Quickstart (first time on this computer)
 
-1. **Install Python** if you don't have it: [python.org/downloads](https://www.python.org/downloads/).
-   On Windows, tick **"Add Python to PATH"** during install.
-2. **Download this project** — click the green **Code** button on GitHub →
-   **Download ZIP**, then unzip it. (Or `git clone` if you know what that means.)
+1. **Install Python** ([python.org/downloads](https://www.python.org/downloads/),
+   tick **"Add Python to PATH"** on Windows) and **Node.js**
+   ([nodejs.org](https://nodejs.org)) for the web interface.
+2. **Download this project** — green **Code** button → **Download ZIP**,
+   unzip (or `git clone`).
 3. **Run the setup wizard:**
    - **Windows:** double-click `start.bat`
-   - **Mac:** right-click `start.sh` → Open (or open Terminal, drag `start.sh`
-     into the window, press Enter)
-   - **Linux:** open a terminal in this folder and run `./start.sh`
+   - **Mac/Linux:** run `./start.sh`
 
-The wizard checks your Python version, installs everything the app needs,
-and walks you through getting free API keys (all optional — explained as
-you go). At the end it offers to launch the app for you.
+The wizard checks Python, installs dependencies, walks you through the free
+API keys (all optional), builds the web UI, and offers to launch.
 
-**Already done this once?** Just run `python gui.py` to launch — no need
-to re-run setup unless something changed.
+**Already set up?** `python run.py` — the app opens in your browser at
+`http://127.0.0.1:8000`.
+
+The previous desktop app is still included for one more release:
+`python run.py --legacy`.
 
 ---
 
 ## What you'll be asked for
 
-The setup wizard asks for a few API keys. Every single one is **optional**
-— the app runs and shows you the GUI with zero keys configured. What
-changes is what works:
+Every key is **optional** — the app runs with zero keys; what changes is
+what works:
 
 | Key | What it unlocks | Cost |
 |---|---|---|
-| Claude (Anthropic) or Gemini | The AI agents that write reports | Gemini has a free tier; Claude is paid-per-use |
-| OpenAI | Alternative to Claude/Gemini | Paid-per-use |
-| Finnhub / Alpha Vantage | Live news headlines & sentiment | Both have free tiers |
-| moomoo (no API key — separate app) | Live brokerage prices, your real positions, order book | Free, but you need a moomoo account |
-| IBKR / Tiger Brokers (no API key / Open API account — see "Linking your broker" below) | Live positions from those brokers | Free |
+| Gemini or Claude (or OpenAI) | The analyst lenses + report writer | Gemini has a free tier; Claude is paid-per-use |
+| Finnhub | News, earnings/IPO calendars, fundamentals fallback | Free tier |
+| Alpha Vantage | News with per-ticker sentiment scores | Free tier |
+| FRED | US macro data (works keyless too, a key is just politer) | Free |
+| moomoo / IBKR / Tiger (no API key) | Live positions & prices from your broker | Free |
 
-If you skip all of them, the app still opens — you just won't get AI
-reports or live news until you add at least one LLM key (Claude/Gemini/
-OpenAI). Prices fall back to Yahoo Finance automatically either way.
+With no keys at all you still get: live prices and charts (Yahoo), the full
+deterministic dashboard (position guidance, risk metrics, screening), and
+broker sync. You need one LLM key for AI reports.
 
-Re-run the setup wizard anytime to add keys you skipped the first time.
+---
+
+## Presets
+
+Ten one-click report configurations, e.g.:
+
+- **Lite** — fast core read of your portfolio (fundamentals + technicals + risk)
+- **Portfolio Medic** — full health check on existing holdings
+- **Opportunist** — scan the broad market for new setups (US/SG/HK/JP/KR universes)
+- **Macro Pulse** — rates/FX/regime backdrop only
+- **Dragon Watch / Sakura Signal / Kimchi Premium** — HK / JP / KR region scans
+- **Quant Lab** — signals and risk, minimal narrative
+- **Insider Edge** — congressional trading disclosures + news + catalysts
 
 ---
 
 ## Linking your broker
 
-`Portfolio.md` is what every agent reads. You can always edit it by hand or
-through the in-app Portfolio Editor, but the app can also pull your real
-positions live and rebuild it for you (the **⇄ Sync Brokers** button in the
-Portfolio Editor tab, also run once automatically on launch). Each broker
-below is independent — set up as many or as few as you actually use.
+`Portfolio.md` is what the analysis reads. Edit it in the app's Portfolio
+tab, or let **⇄ Sync Brokers** rebuild it from live positions. Each broker
+is independent — configure any subset.
 
 ### Moomoo (live)
 No API key. Install and log into moomoo's [OpenD](https://www.moomoo.com/download/OpenAPI)
-gateway app with your moomoo account, then set `MOOMOO_HOST`/`MOOMOO_PORT`
-in `.env` if you changed OpenD's defaults (127.0.0.1:11111).
+gateway, then set `MOOMOO_HOST`/`MOOMOO_PORT` in `.env` if you changed
+OpenD's defaults (127.0.0.1:11111).
 
 ### Interactive Brokers / IBKR (live)
-No API key. Requires **TWS** or **IB Gateway** running locally:
-1. Install [TWS](https://www.interactivebrokers.com/en/trading/tws.php) or
-   [IB Gateway](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php)
-   and log in.
-2. In TWS/Gateway: **Configuration → API → Settings** → check **"Enable
-   ActiveX and Socket Clients"**. Leave **"Read-Only API"** checked —
-   AlphaMaxxin only reads positions, it never places orders.
-3. Set `IBKR_HOST`/`IBKR_PORT`/`IBKR_CLIENT_ID` in `.env` if you changed the
-   defaults (127.0.0.1, 7497 for TWS paper / 7496 live / 4002 Gateway paper
-   / 4001 Gateway live).
-4. `pip install ib_async` (already in `requirements.txt`).
+No API key. Requires **TWS** or **IB Gateway** running and logged in, with
+**Configuration → API → Settings → "Enable ActiveX and Socket Clients"**
+checked. Leave **"Read-Only API"** on — AlphaMaxxin only reads positions.
+Set `IBKR_HOST`/`IBKR_PORT`/`IBKR_CLIENT_ID` in `.env` if you changed the
+defaults (7497 TWS paper / 7496 live / 4002 Gateway paper / 4001 live).
 
 ### Tiger Brokers (live)
-Requires a separate, free **Tiger Open API** account and an RSA keypair —
-follow [Tiger's own setup guide](https://quant.itigerup.com/openapi/en/python/operation/step1.html)
-to generate the keypair and get your Tiger ID. Then set `TIGER_ID`,
-`TIGER_ACCOUNT`, and `TIGER_PRIVATE_KEY_PATH` (path to the private key file)
-in `.env`. `pip install tigeropen` (already in `requirements.txt`).
+Requires a free **Tiger Open API** account and RSA keypair — follow
+[Tiger's setup guide](https://quant.itigerup.com/openapi/en/python/operation/step1.html),
+then set `TIGER_ID`, `TIGER_ACCOUNT`, `TIGER_PRIVATE_KEY_PATH` in `.env`.
 
 ### Webull, Robinhood, or any other broker
-These don't have a wired-up live integration (no stable official API).
-Add your positions to `external_holdings.json` instead — it's merged in
-alongside whatever live brokers you've configured, with quantities summed
-and cost-basis weighted-averaged if the same ticker appears in two sources:
+No stable official API — add positions to `external_holdings.json` instead;
+they merge with live brokers (same ticker in two places gets summed
+quantity and weighted-average cost):
 
 ```json
 {
@@ -159,40 +158,43 @@ To find quantity/cost-basis to copy in:
 - **Robinhood**: app → Account → History → Statements (monthly CSV with
   positions), or open a position's detail page for average cost.
 
-This file is gitignored — your real holdings never get committed.
+`Portfolio.md` and `external_holdings.json` are gitignored — your real
+holdings never leave this machine.
 
 ---
 
 ## Project layout
 
-- `gui.py` — the desktop app (run this to launch, or use `start.bat`/`start.sh`)
-- `runner.py` — agent orchestration logic, LLM calls
-- `moomoo_client.py` / `ibkr_client.py` / `tiger_client.py` — live brokerage
-  data (all optional; see "Linking your broker" above)
-- `news_fetcher.py` — news/sentiment fetching
-- `AGENTS.md` — the system prompts for all 32 agents (also split per-agent
-  under `agents/`, which is what's actually loaded at runtime)
-- `Portfolio.md` — your holdings (edit directly, or via the in-app editor;
-  gitignored, so your real data never gets committed)
-- `external_holdings.json` — supplementary holdings for brokers without a
-  live integration (gitignored)
-- `tests/` — manual smoke-test scripts (see `tests/README.md` — these hit
-  paid APIs and are not run automatically)
+```
+backend/
+  app/skills/     deterministic engines (technicals, risk, macro, options math, …)
+  app/data/       providers: Yahoo, Finnhub, Alpha Vantage, FRED, yfinance
+                  (disk-cached, rate-limited, offline-tripwired in tests)
+  app/brokers/    read-only clients: moomoo, IBKR, Tiger
+  app/llm/        router (Claude/Gemini/OpenAI), 6 role prompts,
+                  4 disabled-lens specs, response cache, cost meter
+  app/reports/    pipeline, presets, storage, HTML rendering, SSE progress
+  tests/          offline test suite — fixtures and mocks, zero API calls
+frontend/         Vite + React dashboard
+run.py            launcher (python run.py; --legacy for the old desktop app)
+gui.py, runner.py, agents/   legacy v1 app (kept one release, tag: v1-legacy)
+```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and
-[CHANGELOG.md](CHANGELOG.md) for release history. Licensed under
-[MIT](LICENSE).
+## Contributing & testing
+
+The test suite is **fully offline and free to run** — `cd backend &&
+python -m pytest`. It never calls LLMs, data providers, or brokers
+(a tripwire makes any attempted network fetch fail the test). See
+[CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [MIT](LICENSE);
+release history in [CHANGELOG.md](CHANGELOG.md).
 
 ## Troubleshooting
 
-- **"python not found" / "python3 not found"** — Python isn't installed, or
-  wasn't added to your system PATH. Reinstall from python.org and make sure
-  to tick the PATH checkbox (Windows) or use the official installer (Mac).
-- **Dependency install fails** — usually a connectivity issue. Re-run the
-  setup wizard. If it keeps failing, copy the exact error message when
-  asking for help.
-- **App opens but reports never generate** — you need at least one of
-  Claude/Gemini/OpenAI configured. Re-run setup to add a key.
-- **No live prices/positions from moomoo** — that's expected unless you've
-  separately installed and logged into moomoo's OpenD gateway app. The app
-  falls back to Yahoo Finance automatically.
+- **"python not found"** — reinstall from python.org with the PATH box ticked.
+- **Browser shows nothing at 127.0.0.1:8000** — the web UI isn't built:
+  `cd frontend && npm install && npm run build`, or use the API docs at
+  `/docs` meanwhile.
+- **Reports don't generate** — you need at least one LLM key
+  (Gemini/Claude/OpenAI) in `.env`; re-run setup to add one.
+- **No live broker positions** — the broker's gateway app (OpenD / TWS)
+  must be running and logged in; prices fall back to Yahoo automatically.
