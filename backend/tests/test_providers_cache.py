@@ -2,10 +2,30 @@
 offline tripwire that guarantees tests can never hit the network."""
 import pytest
 
-from app.data.base import DiskTTLCache, OfflineError, RateLimiter, http_get_json
+from app.data.base import DiskTTLCache, OfflineError, RateLimiter, http_get_json, to_number
 from app.data.yahoo import YahooProvider
 from app.data.finnhub import FinnhubProvider
 from app.data.fred import FredProvider
+
+
+# ---------------------------------------------------------------------------
+# to_number — the shared boundary coercion that keeps a non-numeric provider
+# value ("Infinity", "NM", None, a bool) from ever reaching a numeric
+# comparison downstream and crashing it.
+# ---------------------------------------------------------------------------
+def test_to_number_passes_real_numbers():
+    assert to_number(42) == 42.0
+    assert to_number(3.14) == 3.14
+    assert to_number(-1.5) == -1.5
+    assert to_number(0) == 0.0
+    assert to_number("27.66") == 27.66      # numeric-looking string still parses
+    assert to_number("-3") == -3.0
+
+
+def test_to_number_rejects_non_finite_and_junk():
+    for junk in ("Infinity", "-Infinity", "NaN", "NM", "N/A", "", "abc",
+                 None, True, False, [], {}, float("inf"), float("nan")):
+        assert to_number(junk) is None, junk
 
 
 class FakeClock:

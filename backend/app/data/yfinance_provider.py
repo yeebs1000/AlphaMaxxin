@@ -6,7 +6,7 @@ Imported lazily so the backend runs without the package installed.
 Fundamentals are returned as a flat "raw" dict consumed by
 skills/fundamentals.py — keep field names stable, tests fixture this shape.
 """
-from .base import DiskTTLCache, guard_online, TTL_FUNDAMENTALS
+from .base import DiskTTLCache, guard_online, to_number, TTL_FUNDAMENTALS
 
 # .info keys we extract — single source of truth for the raw shape.
 _INFO_FIELDS = {
@@ -50,18 +50,19 @@ _NUMERIC_FIELDS = {
 
 
 def sanitize_info(ticker: str, info: dict) -> dict | None:
-    """Extract _INFO_FIELDS from a raw yfinance .info dict, dropping any
-    numeric field yfinance handed back as a non-numeric type (its most
-    common failure mode is the string "Infinity" for an undefined ratio,
-    e.g. trailing P/E with negative earnings)."""
+    """Extract _INFO_FIELDS from a raw yfinance .info dict, coercing every
+    numeric field through to_number() — yfinance's most common failure mode
+    is the string "Infinity" for an undefined ratio (e.g. trailing P/E with
+    negative earnings), which becomes None rather than a crash-in-waiting."""
     raw = {"ticker": ticker}
     for src, dst in _INFO_FIELDS.items():
         value = info.get(src)
         if value is None:
             continue
         if dst in _NUMERIC_FIELDS:
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                continue  # e.g. "Infinity" — drop rather than pass a bad type on
+            value = to_number(value)
+            if value is None:
+                continue
         raw[dst] = value
     return raw if len(raw) > 1 else None
 

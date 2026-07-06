@@ -27,6 +27,38 @@ def guard_online() -> None:
         )
 
 
+def to_number(value: Any) -> float | None:
+    """Best-effort numeric coercion for anything crossing a provider
+    boundary (yfinance, Finnhub, FRED, moomoo, cached JSON). Real-world
+    providers occasionally hand back a non-numeric sentinel instead of a
+    plain number or None — yfinance's .info dict can literally contain the
+    Python string "Infinity" for an undefined ratio (e.g. P/E with negative
+    earnings); Finnhub's free tier can emit "NM"/"N/A" strings the same way.
+
+    Returns a plain float for anything that parses to a *finite* number,
+    else None — bools, unparseable strings, and inf/nan (float("Infinity")
+    parses without error but is exactly as useless as the string was) all
+    become None, so a bad upstream value degrades to "missing data" instead
+    of reaching a numeric comparison somewhere downstream and crashing it.
+    Every skill that reads an externally-sourced numeric field should pass
+    it through this — the fix belongs at the boundary, not scattered across
+    every comparison site."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+    elif isinstance(value, str):
+        try:
+            num = float(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    if num != num or num in (float("inf"), float("-inf")):  # NaN / Infinity
+        return None
+    return num
+
+
 _DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 

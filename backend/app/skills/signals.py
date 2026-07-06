@@ -2,6 +2,7 @@
 Aggregator agent and the Dashboard's mechanical Position Guidance card with
 transparent weighted math. Component scores are normalized to −100..+100
 before blending."""
+from ..data.base import to_number
 
 # Component weights for the composite (sum to 1.0). Technicals dominate as
 # the only per-ticker component that always exists; the others fold in when
@@ -10,24 +11,29 @@ WEIGHTS = {"technical": 0.45, "fundamental": 0.25, "news": 0.15, "risk": 0.15}
 
 
 def fundamental_score(snap: dict | None) -> int | None:
-    """−100..+100 from the FundamentalsSnapshot's mechanical facts."""
+    """−100..+100 from the FundamentalsSnapshot's mechanical facts.
+
+    Reads each numeric field through to_number() — a backstop, same as
+    _quality_flags: the snapshot builder already coerces these, but this
+    function must never crash on a bad type no matter how the snapshot was
+    produced (stale cache, hand-built fixture, future caller)."""
     if not snap:
         return None
     score = 0
     flags = snap.get("quality_flags", [])
     score -= 20 * len(flags)
-    growth = snap.get("growth", {})
-    if (growth.get("rev_yoy") or 0) > 0.15:
+    rev_yoy = to_number((snap.get("growth") or {}).get("rev_yoy")) or 0
+    if rev_yoy > 0.15:
         score += 25
-    elif (growth.get("rev_yoy") or 0) > 0.05:
+    elif rev_yoy > 0.05:
         score += 10
-    margins = snap.get("margins", {})
-    if (margins.get("net") or 0) > 0.15:
+    net = to_number((snap.get("margins") or {}).get("net")) or 0
+    if net > 0.15:
         score += 20
-    elif (margins.get("net") or 0) > 0.05:
+    elif net > 0.05:
         score += 10
-    analyst = snap.get("analyst", {})
-    target, price = analyst.get("target_mean"), snap.get("price")
+    analyst = snap.get("analyst") or {}
+    target, price = to_number(analyst.get("target_mean")), to_number(snap.get("price"))
     if target and price:
         upside = (target - price) / price
         if upside > 0.20:

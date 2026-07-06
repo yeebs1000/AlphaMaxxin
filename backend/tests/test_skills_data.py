@@ -270,6 +270,36 @@ def test_yfinance_sanitize_info_drops_infinity_string():
     assert snap["quality_flags"] == []  # would have raised before the fix
 
 
+def test_snapshot_builder_coerces_poisoned_raw_dict():
+    """Backstop: even if a poisoned raw dict reaches compute_fundamentals
+    directly (a stale disk-cache entry written before the provider fix
+    shipped — exactly what kept crashing this in the wild), the snapshot
+    builder coerces every numeric field, so no downstream consumer sees a
+    string where it expects a number."""
+    from app.skills import signals
+    # This is the real shape of the poisoned A31.SI cache entry that crashed.
+    poisoned = {"ticker": "A31.SI", "pe_ttm": "Infinity", "fwd_pe": 27.66,
+                "net_margin": 0.19, "rev_yoy": 0.63, "debt_to_equity": 0.51,
+                "target_mean": 0.34, "price": 0.143, "sector": "Technology"}
+    snap = fundamentals.compute_fundamentals("A31.SI", poisoned)  # must not raise
+    assert snap["valuation"]["pe_ttm"] is None       # "Infinity" coerced to None
+    assert snap["valuation"]["fwd_pe"] == 27.66
+    assert isinstance(snap["quality_flags"], list)
+    # The composite aggregator is the second consumer that compared these
+    # numerically — it must also survive the poisoned snapshot.
+    assert signals.fundamental_score(snap) is not None
+
+
+def test_fundamental_score_survives_string_fields():
+    """fundamental_score compared growth/margin/target fields numerically —
+    guard it directly against a snapshot whose numerics are strings."""
+    from app.skills import signals
+    snap = {"quality_flags": [], "growth": {"rev_yoy": "NaN"},
+            "margins": {"net": "N/A"}, "analyst": {"target_mean": "Infinity"},
+            "price": "50"}
+    assert signals.fundamental_score(snap) == 0  # no flags, all comparisons no-op
+
+
 # ---------------------------------------------------------------------------
 # politician trades
 # ---------------------------------------------------------------------------
