@@ -86,6 +86,8 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     reco = report["sections"]["skills"]["recommendation_blocks"]["MSFT"]
     assert reco["bull_target"] == 480.0
     assert reco["target_source"] == "analyst consensus"
+    assert reco["size_tier"] in ("Full", "Half", "Starter", "Pass")  # "how much"
+    assert "suggested_weight_pct" in reco
     assert report["costs"]["calls"] == 4
     html = store.load_report_html(report_id, str(tmp_path / "reports"))
     assert "Verdict" in html
@@ -97,6 +99,61 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     lenses = {l["id"]: l for l in report["lens_status"]}
     assert lenses["order_book"]["enabled"] is False
     assert lenses["ml_alpha"]["enabled"] is False
+
+
+async def test_market_scan_analyzes_screened_candidates_not_portfolio(
+        tmp_path, portfolio_target):
+    """Opportunist (market_scan + screener) must deeply analyze the SCREENED
+    candidates, never the user's holdings — the whole point is new setups. Here
+    the portfolio is MSFT but the only screenable name is RBLX, so the report's
+    technicals/fundamentals must cover RBLX and not MSFT."""
+    registry = make_registry(
+        yahoo=FakeYahoo(
+            ohlcv_data={"RBLX": _bars(40, 55), "^GSPC": _bars(5000, 5800)},
+            quotes={"RBLX": {"price": 55.0, "currency": "USD", "change_pct": 2.0},
+                    "^GSPC": {"price": 5800.0, "currency": "USD", "change_pct": 0.5}},
+            search_results={"RBLX": [{"symbol": "RBLX", "name": "Roblox",
+                                      "type": "EQUITY"}]}),
+        yfinance=FakeYFinance(fundamentals={"RBLX": {"ticker": "RBLX",
+                              "name": "Roblox", "price": 55.0, "target_mean": 70.0}}))
+    calls = []
+    report_id = await run_report(
+        registry, {"preset": "Opportunist", "target": {"kind": "portfolio"}},
+        lambda *a, **k: None, reports_dir=str(tmp_path / "reports"),
+        transport=canned_transport(calls))
+    report = store.load_report(report_id, str(tmp_path / "reports"))
+    tech = report["sections"]["skills"]["technicals"]
+    assert "RBLX" in tech and "MSFT" not in tech      # candidate analyzed, holding dropped
+    assert "Market scan" in report["run_config"]["target_label"]
+    assert report["sections"]["skills"]["screen"]["US"][0]["ticker"] == "RBLX"
+
+
+def test_size_tier_buckets():
+    from app.skills.signals import _size_tier
+    assert _size_tier("high", 2.0)["label"] == "Full"        # high + good R:R
+    assert _size_tier("high", 1.0)["label"] == "Half"        # high but thin R:R
+    assert _size_tier("medium", 2.5)["label"] == "Half"      # medium rescued by R:R
+    assert _size_tier("medium", 1.0)["label"] == "Starter"
+    assert _size_tier("low", 5.0)["label"] == "Pass"         # low never actionable
+    assert _size_tier("low", 5.0)["weight_pct"] == 0.0
+
+
+def test_scan_region_weighting_favours_us_sg_hk():
+    """Broad Opportunist scan overweights US/SG/HK and keeps JP/KR a minority."""
+    from app.reports.pipeline import _scan_candidates
+    from app.reports.presets import get_preset
+
+    class _AllBars(FakeYahoo):
+        def ohlcv(self, ticker, interval="1d", range_="1y"):
+            return _bars(40, 55)  # every candidate has (passing) data
+
+    holdings, screen = _scan_candidates(make_registry(yahoo=_AllBars()),
+                                        get_preset("Opportunist"))
+    counts = {r: len(v) for r, v in screen.items()}
+    assert counts == {"US": 6, "SG": 5, "HK": 5, "JP": 2, "KR": 2}
+    us_sg_hk = counts["US"] + counts["SG"] + counts["HK"]
+    assert us_sg_hk > counts["JP"] + counts["KR"]            # majority
+    assert len(holdings) == 20
 
 
 async def test_synthesis_failure_falls_back_to_analyst_narratives(tmp_path, portfolio_target):
@@ -161,7 +218,7 @@ def test_all_presets_reference_valid_lenses_and_skills():
     valid_skills = {"technicals", "fundamentals", "macro", "risk", "news",
                     "catalysts", "screener", "signals", "performance",
                     "portfolio_construction", "options_math", "politician_trades",
-                    "order_book", "ml_alpha"}
+                    "order_book", "ml_alpha", "market_review", "strategies"}
     assert len(PRESETS) == 10  # Lite + the 9 full v1 presets
     for preset in list_presets():
         assert set(preset["analysts"]) <= set(ANALYSTS)

@@ -18,6 +18,13 @@ A JSON envelope containing:
   risk_reward_base, conviction, target_source. Every number here is
   already derived from real ATR/analyst-consensus/sizing data — you narrate
   and justify this block, you do NOT invent your own price levels alongside it.
+- `strategy_panel` (when present): per-ticker verdicts from a library of
+  named, code-computed strategies (MA Crossover, RSI Reversion, MACD
+  Momentum, Trend Following, Bollinger Breakout, Volume Surge, Value +
+  Quality) — each with stance/score/reason, plus `net_score`, `bull`, `bear`
+  counts. Use it to say which strategies AGREE and which CONFLICT on a name;
+  a high bull/bear split is a real signal. These are deterministic — cite
+  them, don't recompute or invent verdicts.
 - `options` (US tickers, when available): nearest-expiry chain summary
   (ATM IV, straddle-implied move, max-OI strikes).
 - `screen` (scan presets): candidate universe with momentum ranks.

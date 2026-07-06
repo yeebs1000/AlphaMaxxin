@@ -17,6 +17,13 @@ A JSON envelope containing:
   computed -2..+2 composite score per region from real 3-month index
   momentum and 1-month FX momentum (documented heuristic scaling, not a
   fitted model — you interpret the score, you don't recompute it).
+- `market_review` (when present): per-region daily backdrop — main index
+  level + day change_pct, `market_status` (is_open, last_trading_day — say
+  "as of <last_trading_day>" when a market is closed), and `breadth`
+  (advancers/decliners, advance_decline_ratio, avg_change_pct over a curated
+  liquid basket of `universe_size` names — a representative sample, NOT the
+  whole exchange; frame it that way). Use it for the "what did markets do"
+  read; never invent index or breadth numbers.
 - `run_config`: the preset, target tickers, and any region scoping
   (HK/JP/KR/SG regional presets scope your focus to that market).
 - `portfolio_fx_exposure`: the book's currency weights, when analyzing a

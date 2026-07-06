@@ -16,7 +16,8 @@ from ..skills import (
     news as news_skill, catalysts as cat_skill, screener as screener_skill,
     signals as signals_skill, performance as perf_skill,
     portfolio_construction as pc_skill, options_math, politician_trades as pol_skill,
-    order_book as ob_skill, ml_alpha as ml_skill,
+    order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
+    strategies as strat_skill,
 )
 from . import store
 from .presets import get_preset
@@ -42,6 +43,33 @@ def resolve_target(target: dict) -> tuple[list[dict], str]:
                     for t in found["tickers"]]
         return holdings, f"Watchlist: {found['name']}"
     raise ValueError(f"unknown target kind '{kind}'")
+
+
+# Broad-scan region bias: overweight US/SG/HK, keep JP/KR a deliberate
+# minority. A region-focused preset (Dragon Watch/Sakura/Kimchi) ignores the
+# weights and takes a full slate of its single region.
+# ponytail: fixed weights + buckets — tune here if the regional mix drifts.
+_SCAN_REGION_WEIGHTS = {"US": 6, "SG": 5, "HK": 5, "JP": 2, "KR": 2}
+_SCAN_SINGLE_REGION = 6
+
+
+def _scan_candidates(registry, preset: dict) -> tuple[list[dict], dict]:
+    """Market-scan presets that screen exist to surface NEW setups, not to
+    re-analyze the user's book — so their analysis universe IS the top screened
+    candidates, not the resolved target. Broad (multi-region) scans apply the
+    region weights so US/SG/HK dominate; single-region presets take a full
+    slate. Returns (candidate_holdings, screen). Empty holdings (screener
+    returned nothing) means the caller keeps the original target as a fallback."""
+    regions = preset.get("regions") or list(_SCAN_REGION_WEIGHTS)
+    single = len(regions) == 1
+    screen, holdings = {}, []
+    for region in regions:
+        cap = _SCAN_SINGLE_REGION if single else _SCAN_REGION_WEIGHTS.get(region, 3)
+        part = screener_skill.screen(registry.yahoo, regions=[region], max_per_market=cap)
+        screen[region] = part.get(region, [])
+        holdings += [{"company": s["ticker"], "ticker": s["ticker"], "quantity": 0.0,
+                      "cost_price": 0.0, "currency": "USD"} for s in screen[region]]
+    return holdings, screen
 
 
 def _fetch_per_ticker(registry, holdings: list[dict], emit) -> dict:
@@ -77,7 +105,8 @@ def _returns_from_daily(daily: dict) -> dict:
     return out
 
 
-def run_skills(registry, preset: dict, holdings: list[dict], emit) -> dict:
+def run_skills(registry, preset: dict, holdings: list[dict], emit,
+               prescreened: dict | None = None) -> dict:
     """Execute the preset's deterministic skills. Returns the skills-section
     dict that both the analysts and the report JSON consume."""
     wanted = set(preset["skills"])
@@ -112,6 +141,11 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit) -> dict:
         out["macro"] = macro_skill.compute_macro(registry.fred, registry.yahoo,
                                                  regions=preset.get("regions"))
 
+    if "market_review" in wanted:
+        emit("skills", "Reviewing the market", 36)
+        out["market_review"] = mr_skill.compute_market_review(
+            registry.yahoo, regions=preset.get("regions"))
+
     if "news" in wanted:
         emit("skills", "Fetching and digesting news", 42)
         articles = news_skill.fetch_and_merge(registry, tickers)
@@ -123,8 +157,10 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit) -> dict:
 
     if "screener" in wanted and preset.get("market_scan"):
         emit("skills", "Screening the market", 52)
-        out["screen"] = screener_skill.screen(registry.yahoo,
-                                              regions=preset.get("regions"))
+        # Reuse the screen already computed to pick the scan targets (below) —
+        # recompute only if we weren't handed one (e.g. run_skills called direct).
+        out["screen"] = prescreened if prescreened is not None else \
+            screener_skill.screen(registry.yahoo, regions=preset.get("regions"))
 
     if "performance" in wanted:
         out["summary"] = perf_skill.portfolio_summary(
@@ -147,6 +183,12 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit) -> dict:
             benchmark_returns=_returns_from_daily({"^GSPC": bench}).get("^GSPC"),
             sectors={t: s.get("sector") for t, s in out.get("fundamentals", {}).items()
                      if s.get("sector")})
+
+    if "strategies" in wanted and out.get("technicals"):
+        emit("skills", "Running strategy panel", 62)
+        out["strategy_panel"] = strat_skill.panel(
+            tickers, out.get("technicals", {}), out.get("fundamentals", {}),
+            out.get("composites", {}))
 
     if "signals" in wanted:
         emit("skills", "Aggregating composite signals", 64)
@@ -230,6 +272,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "macro":
         fx_exposure = (skills.get("risk") or {}).get("currency_exposure")
         return {**common, "macro": skills.get("macro"),
+                "market_review": skills.get("market_review"),
                 "portfolio_fx_exposure": fx_exposure}
     if role == "fundamentals":
         return {**common, "fundamentals": skills.get("fundamentals"),
@@ -238,6 +281,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
         return {**common, "technicals": skills.get("technicals"),
                 "composites": skills.get("composites"),
                 "recommendation_blocks": skills.get("recommendation_blocks"),
+                "strategy_panel": skills.get("strategy_panel"),
                 "options": skills.get("options"), "screen": skills.get("screen")}
     if role == "news_catalysts":
         return {**common, "news": skills.get("news"),
@@ -267,6 +311,19 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     settings = settings or load_settings()
     preset = get_preset(config.get("preset", "Lite"))
     holdings, target_label = resolve_target(config.get("target", {"kind": "portfolio"}))
+
+    # Market-scan presets that screen analyze the screened candidates, not the
+    # user's portfolio — that's what makes Opportunist surface new setups
+    # instead of re-reading your holdings. Falls back to the resolved target if
+    # the screen came back empty.
+    prescreened = None
+    if preset.get("market_scan") and "screener" in preset["skills"]:
+        emit("fetch", "Screening the market for candidates", 6)
+        scan_holdings, prescreened = _scan_candidates(registry, preset)
+        if scan_holdings:
+            holdings = scan_holdings
+            target_label = f"Market scan — {preset['name']}"
+
     if not holdings:
         raise ValueError("no target tickers — portfolio empty or no tickers given")
 
@@ -274,7 +331,7 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
                   "regions": preset.get("regions"),
                   "market_scan": preset.get("market_scan", False)}
 
-    skills = run_skills(registry, preset, holdings, emit)
+    skills = run_skills(registry, preset, holdings, emit, prescreened=prescreened)
 
     feed_status = registry.feed_status()
     lens_status = an.lens_status(feed_status)

@@ -107,6 +107,21 @@ def aggregate(ticker: str, technical_snap: dict | None,
             "coverage": round(coverage, 2)}
 
 
+def _size_tier(conviction: str, rr: float | None) -> dict:
+    """How much to buy, from conviction + base risk/reward. Deterministic
+    buckets (never LLM-invented) so the report can show one clear size per name.
+    'Pass' = not actionable enough to recommend at all.
+    ponytail: fixed weight buckets — recalibrate to your risk appetite."""
+    rr = rr or 0
+    if conviction == "high" and rr >= 1.5:
+        return {"label": "Full", "weight_pct": 5.0}
+    if conviction == "high" or (conviction == "medium" and rr >= 2):
+        return {"label": "Half", "weight_pct": 3.0}
+    if conviction == "medium":
+        return {"label": "Starter", "weight_pct": 1.5}
+    return {"label": "Pass", "weight_pct": 0.0}
+
+
 def recommendation_block(ticker: str, technical_snap: dict | None,
                          fundamentals_snap: dict | None = None,
                          atr_stop: float | None = None,
@@ -124,6 +139,8 @@ def recommendation_block(ticker: str, technical_snap: dict | None,
     base_target = round((price + bull_target) / 2, 2)
     stop = atr_stop if atr_stop is not None else round(price - 2 * atr, 2)
     rr_base = round((base_target - price) / (price - stop), 2) if price > stop else None
+    conviction = (composite or {}).get("conviction", "low")
+    tier = _size_tier(conviction, rr_base)
     return {
         "ticker": ticker,
         "current_price": round(price, 2),
@@ -132,7 +149,9 @@ def recommendation_block(ticker: str, technical_snap: dict | None,
         "bull_target": bull_target,
         "bear_stop": stop,
         "risk_reward_base": rr_base,
-        "conviction": (composite or {}).get("conviction", "low"),
+        "conviction": conviction,
+        "size_tier": tier["label"],
+        "suggested_weight_pct": tier["weight_pct"],
         "composite_score": (composite or {}).get("composite_score"),
         "target_source": "analyst consensus" if analyst_target
                          else "ATR-projected (no analyst target available this run)",

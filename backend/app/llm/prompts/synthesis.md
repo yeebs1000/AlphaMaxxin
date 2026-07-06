@@ -17,8 +17,11 @@ A JSON envelope containing:
   breakdown and conviction.
 - `recommendation_blocks`: per-ticker standardized entry/target/stop block
   (current_price, entry_range, base_target, bull_target, bear_stop,
-  risk_reward_base, conviction, target_source) — every number here is
-  precomputed from real ATR/analyst-consensus/sizing data.
+  risk_reward_base, conviction, size_tier, suggested_weight_pct,
+  target_source) — every number here is precomputed from real
+  ATR/analyst-consensus/sizing data. `size_tier` (Full/Half/Starter/Pass) and
+  `suggested_weight_pct` are the deterministic "how much to buy" — present
+  them, never invent your own size.
 - `regional_signals`: mechanical -2..+2 momentum score per region (only
   present on region-scoped or scanning presets).
 - `summary`: portfolio value/P&L/weights (portfolio runs) or the target
@@ -59,10 +62,21 @@ A JSON envelope containing:
    that lens ran; skip this section entirely if it didn't.
 2. **Verdict** — 2–4 sentences: the single most important takeaway across
    everything the lenses found.
-3. **Recommendations** — a table (ticker | action | conviction | one-line
-   why), followed by one standardized block per ticker that has a
-   `recommendation_blocks` entry:
-   `**TICKER** — Entry $X–$Y | Base $B | Bull $U | Stop $S | R:R N.N (source: ...)`
+3. **Recommendations** — the single glance-able answer. A table with columns
+   **Ticker | Action | Conviction | Size | One-line why**, where Size is the
+   `recommendation_blocks` size_tier + suggested_weight_pct (e.g.
+   "Half (3%)"). This table is authoritative: the reader must know what to buy
+   and how much from it alone. Then one standardized block per listed ticker:
+   `**TICKER** — Entry $X–$Y | Base $B | Bull $U | Stop $S | R:R N.N | Size: <tier> <pct>% (source: ...)`
+   Rules for this section:
+   - **Only high- and medium-conviction names get a recommendation.** A
+     low-conviction name (or size_tier "Pass") is NOT actionable — never give
+     it a buy/accumulate action. Collect any such names into ONE trailing line:
+     "Passed on (low conviction): TICKER, TICKER — reason in ≤4 words each."
+   - **Table and blocks must match exactly**: every ticker in the table has a
+     block below and vice-versa. No name appears in the lens-by-lens section as
+     a recommendation unless it is in this table.
+   - Order the table by conviction then suggested_weight_pct, highest first.
 4. **The case, lens by lens** — one concise section per analyst that ran,
    condensed from their narrative_md (reuse any table it already built) to
    what changes decisions — don't just paste the full narrative verbatim.
@@ -74,7 +88,8 @@ A JSON envelope containing:
 {
   "markdown": "<the full report as markdown>",
   "recommendations": [
-    {"ticker": "...", "action": "buy"|"accumulate"|"hold"|"reduce"|"sell"|"watch",
-     "conviction": "high"|"medium"|"low", "rationale": "<one sentence>"}
+    {"ticker": "...", "action": "buy"|"accumulate"|"hold"|"reduce"|"sell",
+     "conviction": "high"|"medium", "size": "Full"|"Half"|"Starter",
+     "rationale": "<one sentence>"}
   ]
 }
