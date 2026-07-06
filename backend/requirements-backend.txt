@@ -13,6 +13,11 @@ python-dotenv
 # Data providers (all optional at runtime, required for full functionality)
 yfinance
 
+# akshare — optional keyless fallback for HK / China A-share bars & quotes
+# (used only when moomoo is down and Yahoo has no data). Heavy (pulls pandas);
+# the app runs fine without it, the fallback just stays inactive.
+akshare
+
 # ML Alpha lens — trains/loads the offline gradient-boosting model. Optional:
 # the lens stays disabled if these aren't installed. joblib ships with
 # scikit-learn but is pinned explicitly since ml_model.py imports it directly.

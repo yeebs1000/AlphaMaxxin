@@ -26,7 +26,25 @@ def live_quote(ticker: str, yahoo) -> dict | None:
     except (ImportError, OfflineError):
         pass
     symbol, _ = yahoo.resolve_symbol(ticker)
-    return yahoo.quote(symbol) if symbol else None
+    q = yahoo.quote(symbol) if symbol else None
+    return q if q else _akshare_quote(ticker)
+
+
+def _akshare_quote(ticker: str) -> dict | None:
+    """Last resort for HK/CN tickers when moomoo is down and Yahoo has nothing."""
+    try:
+        from . import akshare_provider as aks
+        return aks.quote(ticker) if aks.available() else None
+    except (ImportError, OfflineError):
+        return None
+
+
+def _akshare_ohlcv(ticker: str, interval: str) -> dict | None:
+    try:
+        from . import akshare_provider as aks
+        return aks.ohlcv(ticker, interval) if aks.available() else None
+    except (ImportError, OfflineError):
+        return None
 
 
 _MOOMOO_KTYPE = {"1d": "K_DAY", "1wk": "K_WEEK"}
@@ -50,4 +68,5 @@ def live_ohlcv(ticker: str, yahoo, interval: str = "1d", range_: str = "1y") -> 
         except (ImportError, OfflineError):
             pass
     symbol, _ = yahoo.resolve_symbol(ticker)
-    return yahoo.ohlcv(symbol, interval, range_) if symbol else None
+    bars = yahoo.ohlcv(symbol, interval, range_) if symbol else None
+    return bars if bars else _akshare_ohlcv(ticker, interval)
