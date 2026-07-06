@@ -71,10 +71,10 @@ PRESETS = {
         "regions": None,
     },
     "Quant Lab": {
-        "description": "Pure quant scan — signals, depth, and risk, minimal narrative.",
+        "description": "Pure quant scan — signals, depth, ML alpha, and risk, minimal narrative.",
         "skills": ["screener", "technicals", "signals", "risk", "options_math",
-                   "order_book"],
-        "analysts": ["technicals_options", "risk", "order_book"],
+                   "order_book", "ml_alpha"],
+        "analysts": ["technicals_options", "risk", "order_book", "ml_alpha"],
         "market_scan": True,
         "regions": None,
     },

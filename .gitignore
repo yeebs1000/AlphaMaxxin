@@ -31,3 +31,6 @@ Thumbs.db
 # Claude Code local/session-only state (not project tooling)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# Personal continuation notes — local only, never publish
+HANDOFF.md

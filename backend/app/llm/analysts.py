@@ -51,6 +51,14 @@ ANALYSTS = {
         "prompt_file": "order_book.md",
         "required_feeds": ["orderbook"],
     },
+    # Promoted from DISABLED_LENSES once a real feed existed: an offline-trained
+    # scikit-learn model artifact (data/ml_model.py). Shows disabled again
+    # whenever no artifact is present (i.e. before the user runs training).
+    "ml_alpha": {
+        "name": "Machine Learning Alpha Extractor",
+        "prompt_file": "ml_alpha.md",
+        "required_feeds": ["ml_model"],
+    },
 }
 
 # v1 agents with no feasible free feed — kept as ready-to-enable slots.
@@ -63,12 +71,6 @@ DISABLED_LENSES = {
         "prompt_file": "lenses_disabled/alternative_data.md",
         "required_feeds": ["altdata"],
         "enable_hint": "wire a satellite/web alt-data provider (e.g. SimilarWeb) into app/data/",
-    },
-    "ml_alpha": {
-        "name": "Machine Learning Alpha Extractor",
-        "prompt_file": "lenses_disabled/ml_alpha.md",
-        "required_feeds": ["ml_model"],
-        "enable_hint": "add an offline-trained model artifact + inference provider",
     },
     "digital_footprint": {
         "name": "Digital Footprint & Developer Momentum Scanner",

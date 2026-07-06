@@ -13,6 +13,12 @@ python-dotenv
 # Data providers (all optional at runtime, required for full functionality)
 yfinance
 
+# ML Alpha lens — trains/loads the offline gradient-boosting model. Optional:
+# the lens stays disabled if these aren't installed. joblib ships with
+# scikit-learn but is pinned explicitly since ml_model.py imports it directly.
+scikit-learn
+joblib
+
 # LLM providers (optional at runtime — app runs deterministic-only without keys)
 anthropic
 google-genai

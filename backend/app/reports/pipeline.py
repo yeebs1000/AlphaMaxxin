@@ -16,7 +16,7 @@ from ..skills import (
     news as news_skill, catalysts as cat_skill, screener as screener_skill,
     signals as signals_skill, performance as perf_skill,
     portfolio_construction as pc_skill, options_math, politician_trades as pol_skill,
-    order_book as ob_skill,
+    order_book as ob_skill, ml_alpha as ml_skill,
 )
 from . import store
 from .presets import get_preset
@@ -187,6 +187,10 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit) -> dict:
         emit("skills", "Reading Level 2 depth", 69)
         out["order_book"] = ob_skill.fetch_depth_summaries(tickers)
 
+    if "ml_alpha" in wanted:
+        emit("skills", "Scoring ML alpha model", 69)
+        out["ml_alpha"] = ml_skill.predict_targets(tickers, fetched["daily"])
+
     if "politician_trades" in wanted:
         emit("skills", "Checking congressional disclosures", 70)
         provider = pol_skill.PoliticianTradesProvider(registry.yahoo._cache) \
@@ -248,6 +252,9 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
         return {**common, "order_book": skills.get("order_book"),
                 "technicals": skills.get("technicals"),
                 "sizing": skills.get("sizing")}
+    if role == "ml_alpha":
+        return {**common, "ml_alpha": skills.get("ml_alpha"),
+                "technicals": skills.get("technicals")}
     raise KeyError(role)
 
 
@@ -273,11 +280,13 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     lens_status = an.lens_status(feed_status)
     enabled = {l["id"] for l in lens_status if l["enabled"]}
     roles = [r for r in preset["analysts"] if r in enabled]
-    if "order_book" in roles and not skills.get("order_book"):
-        # Feed is up but no target ticker returned depth (unentitled market,
-        # exchange closed) — skip the call rather than billing an analyst
-        # whose entire input would be "no data".
-        roles.remove("order_book")
+    for data_lens in ("order_book", "ml_alpha"):
+        if data_lens in roles and not skills.get(data_lens):
+            # Feed is up but no target ticker produced data (order book:
+            # unentitled market/closed; ml_alpha: too little history) — skip
+            # the call rather than billing an analyst whose entire input
+            # would be "no data".
+            roles.remove(data_lens)
     models = {**settings["models"], **config.get("model_overrides", {})}
 
     emit("analysts", f"Running {len(roles)} analyst lenses", 72)

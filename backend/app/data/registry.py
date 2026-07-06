@@ -33,7 +33,20 @@ class ProviderRegistry:
             "fred": True,   # keyless CSV path
             "yfinance": self.yfinance.available,
             "orderbook": _orderbook_feed_up(),
+            "ml_model": _ml_model_feed_up(),
         }
+
+
+def _ml_model_feed_up() -> bool:
+    """The ML Alpha model feed — up once an offline-trained artifact exists and
+    sklearn/joblib are installed. Pure local (no network), so unlike the order
+    book it can be up under the offline tripwire; it's simply down until the
+    user trains the model. See data/ml_model.py."""
+    try:
+        from .ml_model import model_available
+        return model_available()
+    except (ImportError, OfflineError):
+        return False
 
 
 def _orderbook_feed_up() -> bool:

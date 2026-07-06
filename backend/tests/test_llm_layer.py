@@ -192,10 +192,11 @@ def test_lens_status_disabled_lenses_off_by_default():
     feed_status = {"yahoo": True, "finnhub": True, "alphavantage": False,
                    "fred": True, "yfinance": True}
     lenses = {l["id"]: l for l in analysts.lens_status(feed_status)}
-    assert len(lenses) == 9  # 6 analysts + 3 disabled lenses
+    assert len(lenses) == 9  # 7 analysts + 2 disabled lenses
     for analyst_id in analysts.ANALYSTS:
-        if analyst_id == "order_book":
-            # promoted analyst, but its moomoo-L2 feed is down here
+        if analyst_id in ("order_book", "ml_alpha"):
+            # promoted analysts, but their feeds (moomoo L2 / trained model)
+            # are down here
             assert lenses[analyst_id]["enabled"] is False
         else:
             assert lenses[analyst_id]["enabled"] is True
