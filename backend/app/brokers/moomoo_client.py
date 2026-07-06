@@ -438,33 +438,39 @@ def get_moomoo_kline(ticker: str, ktype: str = "K_DAY", max_count: int = 260) ->
     cached = _kline_cache.get(cache_key)
     if cached and (time.monotonic() - cached[0]) < _KLINE_CACHE_TTL:
         return cached[1]
-    if not _opend_reachable():
+    # Reuse the shared, persistent quote context instead of opening (and 8s-
+    # handshaking) a brand-new OpenQuoteContext per bar request. The pipeline
+    # calls this twice per ticker (daily + weekly), so on a ~40-ticker scan the
+    # old per-call context meant ~80 connect/disconnect cycles and minutes of
+    # pure handshake overhead — the real "takes forever". request_history_kline
+    # is a request API (no subscription), safe on the shared ctx.
+    # ponytail: safe because positions sync (the trade context that used to
+    # deadlock the shared ctx) runs once up front, before this fetch loop —
+    # not interleaved with it.
+    ctx = _get_or_create_ctx()
+    if ctx is None:
         return None
 
     def _fetch():
-        ctx = OpenQuoteContext(host=MOOMOO_HOST, port=MOOMOO_PORT)
-        try:
-            kl_type = getattr(KLType, ktype, KLType.K_DAY)
-            ret, data, _page_key = ctx.request_history_kline(
-                code, ktype=kl_type, autype=AuType.QFQ, max_count=max_count,
-            )
-            if ret != RET_OK or data is None or len(data) == 0:
-                return None
-            rows = []
-            for i in range(len(data)):
-                r = data.iloc[i]
-                rows.append({
-                    "time": str(r.get("time_key", "")),
-                    "open": float(r.get("open", 0) or 0),
-                    "high": float(r.get("high", 0) or 0),
-                    "low": float(r.get("low", 0) or 0),
-                    "close": float(r.get("close", 0) or 0),
-                    "volume": float(r.get("volume", 0) or 0),
-                    "turnover": float(r.get("turnover", 0) or 0),
-                })
-            return rows
-        finally:
-            ctx.close()
+        kl_type = getattr(KLType, ktype, KLType.K_DAY)
+        ret, data, _page_key = ctx.request_history_kline(
+            code, ktype=kl_type, autype=AuType.QFQ, max_count=max_count,
+        )
+        if ret != RET_OK or data is None or len(data) == 0:
+            return None
+        rows = []
+        for i in range(len(data)):
+            r = data.iloc[i]
+            rows.append({
+                "time": str(r.get("time_key", "")),
+                "open": float(r.get("open", 0) or 0),
+                "high": float(r.get("high", 0) or 0),
+                "low": float(r.get("low", 0) or 0),
+                "close": float(r.get("close", 0) or 0),
+                "volume": float(r.get("volume", 0) or 0),
+                "turnover": float(r.get("turnover", 0) or 0),
+            })
+        return rows
 
     result = _run_bounded(_fetch, timeout=_PORTFOLIO_TIMEOUT)
     if result is not None:
