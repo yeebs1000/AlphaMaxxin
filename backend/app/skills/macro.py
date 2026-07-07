@@ -102,6 +102,18 @@ def compute_macro(fred, yahoo, regions: list | None = None) -> dict:
     breakeven_10y = _latest(fred.series("T10YIE"))
     fed_balance_sheet = _latest(fred.series("WALCL"))
     fed_balance_sheet_13w_change = _change_over(fred.series("WALCL"), 13)
+    # PPI: producer-side inflation (BLS Final Demand), same monthly cadence as CPI.
+    ppi_yoy = _yoy_pct(fred.series("PPIFIS"))
+    core_ppi_yoy = _yoy_pct(fred.series("PPICOR"))
+    # NFP: PAYEMS is already reported in thousands of persons, so a 1-month
+    # diff IS the monthly nonfarm payrolls change in thousands.
+    nfp_change_k = _change_over(fred.series("PAYEMS"), 1)
+    # Fed dot plot: the FOMC's OWN quarterly Summary of Economic Projections
+    # median fed-funds path — updates only ~4x/year, not a live series.
+    dot_median_next_year = _latest(fred.series("FEDTARMD"))
+    dot_median_longer_run = _latest(fred.series("FEDTARMDLR"))
+    market_vs_fed_gap = (round(ust2y - dot_median_next_year, 2)
+                         if ust2y is not None and dot_median_next_year is not None else None)
 
     curve_2s10s = (ust10y - ust2y) if ust10y is not None and ust2y is not None else None
 
@@ -124,6 +136,8 @@ def compute_macro(fred, yahoo, regions: list | None = None) -> dict:
         "inflation_above_target": cpi_yoy is not None and cpi_yoy > 3.0,
         "fed_balance_sheet_contracting":
             fed_balance_sheet_13w_change is not None and fed_balance_sheet_13w_change < 0,
+        "producer_inflation_hot": core_ppi_yoy is not None and core_ppi_yoy > 3.0,
+        "payrolls_cooling": nfp_change_k is not None and nfp_change_k < 100,
     }
 
     region_list = regions or ["US"]
@@ -133,9 +147,14 @@ def compute_macro(fred, yahoo, regions: list | None = None) -> dict:
         "rates": {"fed_funds": fed_funds, "ust2y": ust2y, "ust10y": ust10y,
                   "curve_2s10s": curve_2s10s, "breakeven_10y": breakeven_10y},
         "inflation": {"cpi_yoy": cpi_yoy, "core_cpi_yoy": core_cpi_yoy, "pce_yoy": pce_yoy},
-        "labor": {"unemployment": unemployment, "jobless_claims": jobless_claims},
+        "producer_prices": {"ppi_yoy": ppi_yoy, "core_ppi_yoy": core_ppi_yoy},
+        "labor": {"unemployment": unemployment, "jobless_claims": jobless_claims,
+                 "nonfarm_payrolls_change_k": nfp_change_k},
         "fed_balance_sheet": {"level": fed_balance_sheet,
                               "change_13w": fed_balance_sheet_13w_change},
+        "fed_dot_plot": {"median_next_year": dot_median_next_year,
+                        "median_longer_run": dot_median_longer_run,
+                        "market_vs_fed_gap": market_vs_fed_gap},
         "indices": indices,
         "fx": fx,
         "commodities": commodities,

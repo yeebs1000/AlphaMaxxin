@@ -17,8 +17,10 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..skills import ml_features as feat
+from ..skills import ml_macro_features as macro_feat
 
 ARTIFACT_PATH = Path(__file__).resolve().parent.parent / "models" / "ml_alpha_v1.joblib"
+_KNOWN_FEATURE_NAMES = set(feat.FEATURE_NAMES) | set(macro_feat.MACRO_FEATURE_NAMES)
 
 
 @lru_cache(maxsize=1)
@@ -37,9 +39,11 @@ def _load_bundle():
         bundle = joblib.load(ARTIFACT_PATH)
     except Exception:  # corrupt/incompatible artifact — treat as no model
         return None
-    if bundle.get("feature_names") != feat.FEATURE_NAMES:
-        # Artifact was trained against a different feature set than this code
-        # computes — refuse it rather than feed the model misaligned columns.
+    names = bundle.get("feature_names") or []
+    if not names or not set(names) <= _KNOWN_FEATURE_NAMES:
+        # Artifact references a feature this code doesn't know how to compute
+        # (technical-only and technical+macro artifacts are both valid shapes;
+        # only an UNKNOWN name — a stale/foreign artifact — gets refused).
         return None
     return bundle
 
@@ -50,32 +54,40 @@ def model_available() -> bool:
     return _load_bundle() is not None
 
 
-def predict(daily: dict | None) -> dict | None:
-    """Score one ticker's daily OHLCV ({"closes","highs","lows","volumes"}).
-    Returns {prediction, probability, feature_importances, validation_metrics,
-    trained_at, horizon_days, bars_used} or None when there's no model or too
-    little history. `probability` is P(up) from the model; `prediction` is the
-    argmax label. feature_importances / validation_metrics are the model's
-    stored global values (a model property, not per-prediction)."""
+def predict(daily: dict | None, macro: dict | None = None) -> dict | None:
+    """Score one ticker's daily OHLCV ({"closes","highs","lows","volumes"}),
+    optionally with a live `macro.compute_macro()`-shaped snapshot for macro
+    context. Returns {prediction, probability, label, feature_importances,
+    validation_metrics, trained_at, horizon_days, bars_used} or None when
+    there's no model or too little history. The model predicts whether the
+    stock BEATS its benchmark (e.g. S&P 500) over `horizon_days` — not raw
+    up/down — see `label` for the exact trained definition. `probability` is
+    P(outperform); `prediction` is the argmax label. feature_importances /
+    validation_metrics are the model's stored global values (a model
+    property, not per-prediction). Missing `macro` degrades those columns to
+    NaN — never crashes the technical-only path."""
     bundle = _load_bundle()
     if not bundle or not daily:
         return None
     closes = daily.get("closes") or []
     if len(closes) < feat.MIN_BARS:
         return None
-    row = feat.feature_row(closes, daily.get("highs", []), daily.get("lows", []),
-                           daily.get("volumes", []), len(closes) - 1)
-    if row is None:
+    technical = feat.feature_at(closes, daily.get("highs", []), daily.get("lows", []),
+                                daily.get("volumes", []), len(closes) - 1)
+    if technical is None:
         return None
+    combined = {**technical, **macro_feat.from_macro_snapshot(macro)}
+    row = [combined.get(name) for name in bundle["feature_names"]]
 
     import numpy as np
     model = bundle["model"]
     X = np.asarray([row], dtype=float)
-    # classes_ are [0, 1] = [down, up]; probability of the "up" class.
-    proba_up = float(model.predict_proba(X)[0][list(model.classes_).index(1)])
+    # classes_ are [0, 1] = [underperform, outperform]; P(class 1).
+    proba_outperform = float(model.predict_proba(X)[0][list(model.classes_).index(1)])
     return {
-        "prediction": "up" if proba_up >= 0.5 else "down",
-        "probability": round(proba_up, 4),
+        "prediction": "outperform" if proba_outperform >= 0.5 else "underperform",
+        "probability": round(proba_outperform, 4),
+        "label": bundle.get("label"),
         "feature_importances": bundle.get("feature_importances", {}),
         "validation_metrics": bundle.get("validation_metrics", {}),
         "trained_at": bundle.get("trained_at"),

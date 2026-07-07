@@ -10,13 +10,34 @@ project's HARD RULE #1 it is therefore *never* imported by the test suite —
 tests build a tiny synthetic model in-memory instead. Running this is the user's
 call, exactly like triggering a live report.
 
-What it does: downloads ~5y daily OHLCV for a fixed liquid-large-cap universe,
+What it does: downloads ~10y daily OHLCV for a ~120-name multi-region universe,
 builds features with the SAME app.skills.ml_features.feature_at used at
-inference (no train/serve skew), labels each bar by the sign of its forward
-20-day return, validates with a time-series split, fits a gradient-boosting
-classifier on all data, and saves {model, feature_names, metrics, importances}
-to backend/app/models/ml_alpha_v1.joblib.
+inference (no train/serve skew), labels each bar by whether the stock BEATS
+the S&P 500 over the forward HORIZON_DAYS window (relative return, not raw
+direction — a 60-day up move that trails the market isn't the signal we want),
+dropping near-zero relative moves as unlabelable noise. Validates with a
+time-series split, fits a gradient-boosting classifier on all data, and saves
+{model, feature_names, metrics, importances} to
+backend/app/models/ml_alpha_v1.joblib.
+
+Why relative-to-benchmark instead of raw direction: a first pass trained on
+raw 20-day direction came back at AUC ~0.51 (a coin flip) — the only features
+with any real signal were the momentum ones (ret_60d/120d, sma50_vs_sma200),
+and raw direction is dominated by the market's own drift (56% of days are
+"up" regardless of the stock). Relative return isolates stock-specific
+momentum from beta, and the longer 60-day horizon gives that momentum more
+room to matter than a noisy 20-day window.
+
+This pass ALSO adds macro context (CPI/PPI/curve/NFP/Fed-dot-plot) as features,
+via the SAME app.skills.ml_macro_features.from_macro_snapshot used at live
+inference. Point-in-time correctness: every FRED observation is only treated
+as "known" LAG_DAYS after its reference date (a conservative uniform buffer,
+not real per-series publication timing) — otherwise a historical training
+sample would see a CPI print before it was actually public, an obvious
+lookahead leak. Live serving needs no such lag (today's live snapshot only
+ever contains already-public data).
 """
+import bisect
 import datetime
 import sys
 from pathlib import Path
@@ -28,18 +49,42 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "backend"))
 
 from app.skills import ml_features as feat  # noqa: E402
+from app.skills import ml_macro_features as macro_feat  # noqa: E402
+from app.skills import macro as macro_skill  # noqa: E402
 
-# ponytail: fixed ~30-name liquid US large-cap universe + single 20-day horizon
-# + default-ish HistGBM params — the smallest thing that yields a real, honest
-# validated model. Upgrade paths when it matters: widen/rotate the universe,
-# add multiple horizons, purged walk-forward CV, hyperparameter search.
-UNIVERSE = [
+from app.skills.screener import CANDIDATE_LISTS  # noqa: E402
+
+# Comprehensive multi-region universe: a broad US large/mega-cap core PLUS the
+# screener's curated US/SG/HK/JP/KR candidate lists, so the model learns from
+# the same kinds of names it will score at inference across every market.
+# ponytail: single 20-day horizon + one HistGBM config with early stopping —
+# still one honest validated model, just trained wider/longer. Upgrade paths:
+# multiple horizons, purged walk-forward CV, hyperparameter search.
+_US_CORE = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AVGO", "JPM", "V",
     "UNH", "HD", "PG", "MA", "COST", "XOM", "JNJ", "WMT", "KO", "PEP",
     "ORCL", "CRM", "AMD", "NFLX", "ADBE", "BAC", "DIS", "CSCO", "INTC", "QCOM",
+    "TXN", "IBM", "GE", "CAT", "GS", "MS", "PFE", "MRK", "ABBV", "LLY",
+    "TMO", "DHR", "ABT", "NKE", "MCD", "SBUX", "LOW", "UPS", "CVX", "COP",
+    "BA", "HON", "UNP", "T", "VZ", "CMCSA", "PM", "LIN", "NEE", "AMAT",
 ]
-HORIZON_DAYS = 20
-YEARS = 5
+UNIVERSE = sorted(set(_US_CORE) | {t for lst in CANDIDATE_LISTS.values() for t in lst})
+HORIZON_DAYS = 60
+YEARS = 10
+BENCHMARK = "^GSPC"
+# Relative moves smaller than this are noise, not a callable "beats/lags the
+# market" signal — dropped rather than forced into an arbitrary up/down label.
+DEAD_ZONE = 0.02
+# ponytail: one uniform lag for every macro series, not each one's real
+# publication delay (NFP ~1wk, CPI/PPI ~2-3wk, SEP same-day) — a deliberately
+# conservative margin-of-safety, not per-series precision. Upgrade path: real
+# ALFRED vintage data if this ever needs to be exact.
+MACRO_LAG_DAYS = 45
+# Raw FRED series IDs needed to reconstruct a compute_macro()-shaped snapshot
+# at each historical sample date.
+_MACRO_SERIES_IDS = ["FEDFUNDS", "DGS2", "DGS10", "CPIAUCSL", "CPILFESL",
+                    "PPIFIS", "PPICOR", "PAYEMS", "UNRATE", "FEDTARMD"]
+COMBINED_FEATURE_NAMES = feat.FEATURE_NAMES + macro_feat.MACRO_FEATURE_NAMES
 ARTIFACT = _REPO_ROOT / "backend" / "app" / "models" / "ml_alpha_v1.joblib"
 
 
@@ -63,9 +108,89 @@ def _download(ticker: str):
     }
 
 
+def _spx_fwd_return(spx_dates, spx_closes, date, horizon: int) -> float | None:
+    """Forward HORIZON_DAYS return of the benchmark as of `date`, aligned by
+    nearest trading date (HK/JP/KR/SG calendars don't match the US exactly, so
+    an exact date match would drop most non-US samples)."""
+    i = bisect.bisect_left(spx_dates, date)
+    if i >= len(spx_dates) or i + horizon >= len(spx_dates):
+        return None
+    return spx_closes[i + horizon] / spx_closes[i] - 1.0
+
+
+def _fetch_macro_series(fred) -> dict:
+    """Every raw FRED series needed for the macro panel, fetched once."""
+    return {sid: fred.series(sid) for sid in _MACRO_SERIES_IDS}
+
+
+def _lag_and_sort(series: dict | None, lag_days: int):
+    """A FRED series' observations, each shifted `lag_days` forward (the date
+    it becomes "known"), as a (dates, values) pair ready for bisect lookups."""
+    if not series or not series.get("observations"):
+        return [], []
+    dates, values = [], []
+    for obs in series["observations"]:
+        d = datetime.date.fromisoformat(obs["date"]) + datetime.timedelta(days=lag_days)
+        dates.append(d)
+        values.append(obs["value"])
+    return dates, values
+
+
+def _asof_series(lagged_dates, lagged_values, as_of: datetime.date) -> dict | None:
+    """A FRED-series-shaped dict containing only observations known as of
+    `as_of` — fed straight into macro.py's OWN _yoy_pct/_change_over/_latest so
+    the historical math is identical to the live path, not reimplemented."""
+    idx = bisect.bisect_right(lagged_dates, as_of)
+    if idx == 0:
+        return None
+    return {"observations": [{"date": "unused", "value": v} for v in lagged_values[:idx]]}
+
+
+def _macro_snapshot_asof(macro_lagged: dict, as_of: datetime.date) -> dict:
+    """Reconstruct a compute_macro()-shaped dict as of a historical date, using
+    ONLY data that would have been public by then (per MACRO_LAG_DAYS). Reuses
+    macro.py's own _latest/_yoy_pct/_change_over — same functions the live app
+    calls, so training and serving compute macro fields identically."""
+    def s(sid):
+        return _asof_series(*macro_lagged[sid], as_of)
+
+    fed_funds = macro_skill._latest(s("FEDFUNDS"))
+    ust2y = macro_skill._latest(s("DGS2"))
+    ust10y = macro_skill._latest(s("DGS10"))
+    dot_next_year = macro_skill._latest(s("FEDTARMD"))
+    curve_2s10s = (ust10y - ust2y) if ust10y is not None and ust2y is not None else None
+    gap = (ust2y - dot_next_year) if ust2y is not None and dot_next_year is not None else None
+    return {
+        "inflation": {"cpi_yoy": macro_skill._yoy_pct(s("CPIAUCSL")),
+                     "core_cpi_yoy": macro_skill._yoy_pct(s("CPILFESL"))},
+        "producer_prices": {"ppi_yoy": macro_skill._yoy_pct(s("PPIFIS")),
+                           "core_ppi_yoy": macro_skill._yoy_pct(s("PPICOR"))},
+        "rates": {"curve_2s10s": curve_2s10s, "fed_funds": fed_funds},
+        "labor": {"nonfarm_payrolls_change_k": macro_skill._change_over(s("PAYEMS"), 1),
+                 "unemployment": macro_skill._latest(s("UNRATE"))},
+        "fed_dot_plot": {"market_vs_fed_gap": gap},
+    }
+
+
 def _build_samples():
-    """→ (dates, X, y) pooled across the universe. Each sample: features at bar
-    i (history ≤ i only) labelled by sign of the forward HORIZON_DAYS return."""
+    """→ (dates, X, y) pooled across the universe. Each sample: technical
+    features at bar i (history ≤ i only) + point-in-time-safe macro features
+    as of that date, labelled by whether the stock's forward HORIZON_DAYS
+    return beats the benchmark's, by more than DEAD_ZONE either way."""
+    from app.data.base import DiskTTLCache
+    from app.data.fred import FredProvider
+
+    print(f"Downloading benchmark {BENCHMARK} for relative labelling...")
+    spx = _download(BENCHMARK)
+    spx_dates = [d.date() for d in spx["dates"]]
+    spx_closes = spx["closes"]
+
+    print("Downloading macro series (FRED) for point-in-time features...")
+    fred = FredProvider(DiskTTLCache())
+    raw_macro = _fetch_macro_series(fred)
+    macro_lagged = {sid: _lag_and_sort(series, MACRO_LAG_DAYS)
+                    for sid, series in raw_macro.items()}
+
     dates, rows, labels = [], [], []
     for ticker in UNIVERSE:
         bars = _download(ticker)
@@ -76,29 +201,46 @@ def _build_samples():
         n = len(c)
         made = 0
         for i in range(feat.MIN_BARS - 1, n - HORIZON_DAYS):
-            row = feat.feature_row(c, bars["highs"], bars["lows"], bars["volumes"], i)
-            if row is None or any(x != x for x in row):  # drop rows with any NaN
+            technical = feat.feature_at(c, bars["highs"], bars["lows"], bars["volumes"], i)
+            if technical is None or any(v != v for v in technical.values()):
+                continue  # drop rows with any NaN technical feature
+            fwd_stock = c[i + HORIZON_DAYS] / c[i] - 1.0
+            sample_date = bars["dates"][i].date()
+            fwd_spx = _spx_fwd_return(spx_dates, spx_closes, sample_date, HORIZON_DAYS)
+            if fwd_spx is None:
                 continue
-            fwd = c[i + HORIZON_DAYS] / c[i] - 1.0
+            rel = fwd_stock - fwd_spx
+            if abs(rel) < DEAD_ZONE:  # not a callable outperform/underperform
+                continue
+            macro_snapshot = _macro_snapshot_asof(macro_lagged, sample_date)
+            combined = {**technical, **macro_feat.from_macro_snapshot(macro_snapshot)}
+            row = [combined.get(name, np.nan) for name in COMBINED_FEATURE_NAMES]
             dates.append(bars["dates"][i])
             rows.append(row)
-            labels.append(1 if fwd > 0 else 0)
+            labels.append(1 if rel > 0 else 0)
             made += 1
         print(f"  {ticker}: {made} samples")
     return np.array(dates), np.array(rows, dtype=float), np.array(labels, dtype=int)
 
 
+def _new_model():
+    """One shared model config: shallow trees, slow learning rate, L2 reg and
+    early stopping — robust defaults for a wide, noisy financial panel."""
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    return HistGradientBoostingClassifier(
+        max_depth=4, learning_rate=0.03, max_iter=600, l2_regularization=1.0,
+        early_stopping=True, validation_fraction=0.15, random_state=0)
+
+
 def _validate(X, y):
     """Time-ordered out-of-sample validation. Returns mean accuracy + AUC over
     the splits — the honest skill estimate the lens is required to report."""
-    from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.metrics import accuracy_score, roc_auc_score
     from sklearn.model_selection import TimeSeriesSplit
 
     accs, aucs = [], []
     for train_idx, test_idx in TimeSeriesSplit(n_splits=5).split(X):
-        m = HistGradientBoostingClassifier(max_depth=3, learning_rate=0.05,
-                                           max_iter=300, random_state=0)
+        m = _new_model()
         m.fit(X[train_idx], y[train_idx])
         proba = m.predict_proba(X[test_idx])[:, list(m.classes_).index(1)]
         accs.append(accuracy_score(y[test_idx], (proba >= 0.5).astype(int)))
@@ -111,10 +253,9 @@ def _validate(X, y):
 
 def main():
     import joblib
-    from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.inspection import permutation_importance
 
-    print(f"Downloading {len(UNIVERSE)} tickers × ~{YEARS}y daily...")
+    print(f"Downloading {len(UNIVERSE)} tickers x ~{YEARS}y daily...")
     dates, X, y = _build_samples()
     if len(y) < 500:
         raise SystemExit(f"only {len(y)} samples — too few to train credibly")
@@ -127,25 +268,26 @@ def main():
 
     # Fit the shipped model on ALL data; importances via permutation on a
     # held-out tail so they reflect out-of-sample behaviour, not train fit.
-    model = HistGradientBoostingClassifier(max_depth=3, learning_rate=0.05,
-                                           max_iter=300, random_state=0)
+    model = _new_model()
     split = int(len(y) * 0.8)
     model.fit(X[:split], y[:split])
     perm = permutation_importance(model, X[split:], y[split:], n_repeats=10,
                                   random_state=0)
     importances = {name: round(float(imp), 5)
-                   for name, imp in zip(feat.FEATURE_NAMES, perm.importances_mean)}
+                   for name, imp in zip(COMBINED_FEATURE_NAMES, perm.importances_mean)}
+    model = _new_model()
     model.fit(X, y)  # final refit on everything for the artifact
 
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({
         "model": model,
-        "feature_names": feat.FEATURE_NAMES,
+        "feature_names": COMBINED_FEATURE_NAMES,
         "trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "validation_metrics": metrics,
         "feature_importances": importances,
         "horizon_days": HORIZON_DAYS,
         "universe": UNIVERSE,
+        "label": f"beats {BENCHMARK} by >{DEAD_ZONE:.0%} over {HORIZON_DAYS}d",
     }, ARTIFACT)
     print(f"Saved {ARTIFACT}")
     print("Restart the app — the ML Alpha lens will now show enabled.")

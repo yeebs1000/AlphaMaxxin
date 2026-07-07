@@ -98,7 +98,9 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     # Disabled lenses recorded, never billed
     lenses = {l["id"]: l for l in report["lens_status"]}
     assert lenses["order_book"]["enabled"] is False
-    assert lenses["ml_alpha"]["enabled"] is False
+    # ml_alpha is recorded in lens_status either way; its enabled state now
+    # depends on whether a trained model artifact is present in this env.
+    assert "ml_alpha" in lenses
 
 
 async def test_market_scan_analyzes_screened_candidates_not_portfolio(

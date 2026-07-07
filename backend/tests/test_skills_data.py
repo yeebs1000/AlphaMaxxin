@@ -213,6 +213,37 @@ def test_macro_regional_signal_none_without_data():
     assert signal["composite_score"] is None
 
 
+def test_macro_ppi_nfp_and_fed_dot_plot():
+    fred = FakeFred({
+        "DGS2": _fred_series("DGS2", [4.0]),
+        "PPIFIS": _fred_series("PPIFIS", [100 + i * 0.3 for i in range(13)]),
+        "PPICOR": _fred_series("PPICOR", [100 + i * 0.4 for i in range(13)]),
+        # 2 monthly NFP prints: +150k over the latest month.
+        "PAYEMS": _fred_series("PAYEMS", [158000, 158150]),
+        "FEDTARMD": _fred_series("FEDTARMD", [3.9]),
+        "FEDTARMDLR": _fred_series("FEDTARMDLR", [3.0]),
+    })
+    snap = macro.compute_macro(fred, FakeYahoo())
+    assert snap["producer_prices"]["ppi_yoy"] is not None
+    assert snap["producer_prices"]["core_ppi_yoy"] is not None
+    assert snap["labor"]["nonfarm_payrolls_change_k"] == pytest.approx(150.0)
+    assert snap["fed_dot_plot"]["median_next_year"] == pytest.approx(3.9)
+    assert snap["fed_dot_plot"]["median_longer_run"] == pytest.approx(3.0)
+    # market_vs_fed_gap = ust2y (4.0) - median_next_year (3.9) = +0.1
+    assert snap["fed_dot_plot"]["market_vs_fed_gap"] == pytest.approx(0.1)
+    assert snap["regime_flags"]["payrolls_cooling"] is False  # +150k >= 100k
+
+
+def test_macro_ppi_nfp_dot_plot_missing_is_none():
+    snap = macro.compute_macro(FakeFred(), FakeYahoo())
+    assert snap["producer_prices"]["ppi_yoy"] is None
+    assert snap["labor"]["nonfarm_payrolls_change_k"] is None
+    assert snap["fed_dot_plot"]["median_next_year"] is None
+    assert snap["fed_dot_plot"]["market_vs_fed_gap"] is None
+    assert snap["regime_flags"]["producer_inflation_hot"] is False
+    assert snap["regime_flags"]["payrolls_cooling"] is False
+
+
 # ---------------------------------------------------------------------------
 # fundamentals
 # ---------------------------------------------------------------------------

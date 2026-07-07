@@ -231,7 +231,12 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
 
     if "ml_alpha" in wanted:
         emit("skills", "Scoring ML alpha model", 69)
-        out["ml_alpha"] = ml_skill.predict_targets(tickers, fetched["daily"])
+        # Live macro snapshot for the model's macro features — cheap even when
+        # "macro" isn't otherwise in this preset's skills, since FRED responses
+        # are already TTL-cached.
+        macro_snapshot = macro_skill.compute_macro(registry.fred, registry.yahoo)
+        out["ml_alpha"] = ml_skill.predict_targets(tickers, fetched["daily"],
+                                                   macro=macro_snapshot)
 
     if "politician_trades" in wanted:
         emit("skills", "Checking congressional disclosures", 70)
@@ -273,6 +278,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
         fx_exposure = (skills.get("risk") or {}).get("currency_exposure")
         return {**common, "macro": skills.get("macro"),
                 "market_review": skills.get("market_review"),
+                "news": skills.get("news"),
                 "portfolio_fx_exposure": fx_exposure}
     if role == "fundamentals":
         return {**common, "fundamentals": skills.get("fundamentals"),

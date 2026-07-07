@@ -28,12 +28,17 @@ FEATURE_NAMES = [
     "atr_pct",
     "macd_hist_pct",
     "ret_20d",
+    "ret_60d",
+    "ret_120d",
+    "dist_52w_high",
+    "realized_vol_20d",
     "vol_ratio_20d",
 ]
 
-# Enough daily bars to make the slowest feature (SMA200 / 20-day momentum)
-# meaningful. Below this, feature_at() returns None rather than a mostly-NaN row.
-MIN_BARS = 200
+# Enough daily bars to make the slowest feature (52-week high / 6-month
+# momentum) meaningful. Below this, feature_at() returns None rather than a
+# mostly-NaN row.
+MIN_BARS = 252
 
 
 def _safe_ratio(a, b):
@@ -83,6 +88,14 @@ def feature_at(closes, highs, lows, volumes, i: int) -> dict | None:
         "atr_pct": (atr14 / last) if (atr14 is not None and last) else np.nan,
         "macd_hist_pct": (macd["histogram"] / last) if (macd and last) else np.nan,
         "ret_20d": (last / float(c[-21]) - 1.0) if len(c) > 20 and c[-21] else np.nan,
+        "ret_60d": (last / float(c[-61]) - 1.0) if len(c) > 60 and c[-61] else np.nan,
+        "ret_120d": (last / float(c[-121]) - 1.0) if len(c) > 120 and c[-121] else np.nan,
+        # how far below the trailing 52-week high (<=0; 0 = at new high)
+        "dist_52w_high": (last / float(np.max(h[-252:])) - 1.0)
+                         if len(h) >= 252 and np.max(h[-252:]) else np.nan,
+        # 20-day realized volatility (std of daily returns)
+        "realized_vol_20d": float(np.std(np.diff(c[-21:]) / c[-21:-1]))
+                            if len(c) > 20 and np.all(c[-21:-1]) else np.nan,
         "vol_ratio_20d": (float(v[-1]) / avg_vol20) if avg_vol20 else np.nan,
     }
 
