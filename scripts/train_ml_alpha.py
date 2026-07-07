@@ -119,8 +119,13 @@ def _spx_fwd_return(spx_dates, spx_closes, date, horizon: int) -> float | None:
 
 
 def _fetch_macro_series(fred) -> dict:
-    """Every raw FRED series needed for the macro panel, fetched once."""
-    return {sid: fred.series(sid) for sid in _MACRO_SERIES_IDS}
+    """Every raw FRED series needed for the macro panel, fetched once. limit is
+    generously large (default 400 covers only ~1.6y of the DAILY series DGS2/
+    DGS10 — nowhere near the ~10y+lag training window; the resulting all-NaN
+    early history crashed HistGBM's binning on a fold with zero real values in
+    that column). Harmless for the monthly/quarterly series, which simply
+    return however many observations actually exist."""
+    return {sid: fred.series(sid, limit=4000) for sid in _MACRO_SERIES_IDS}
 
 
 def _lag_and_sort(series: dict | None, lag_days: int):
