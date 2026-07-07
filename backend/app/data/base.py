@@ -10,9 +10,10 @@ import json
 import os
 import threading
 import time
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable
+
+import requests
 
 
 class OfflineError(RuntimeError):
@@ -63,17 +64,23 @@ _DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 
 def http_get_json(url: str, timeout: float = 8.0, headers: dict | None = None) -> Any:
+    # requests, not urllib — bare urllib.request gets its connection reset or
+    # times out against some providers (confirmed against fred.stlouisfed.org:
+    # a WAF/CDN in front of it evidently fingerprints and blocks urllib's raw
+    # TLS handshake while requests' works fine with an identical URL/timeout).
+    # Every caller already wraps these in `except Exception`, so the swapped
+    # exception types (requests.RequestException vs urllib's) need no changes.
     guard_online()
-    req = urllib.request.Request(url, headers=headers or _DEFAULT_HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+    resp = requests.get(url, headers=headers or _DEFAULT_HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def http_get_text(url: str, timeout: float = 8.0, headers: dict | None = None) -> str:
     guard_online()
-    req = urllib.request.Request(url, headers=headers or _DEFAULT_HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    resp = requests.get(url, headers=headers or _DEFAULT_HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
 
 
 def default_cache_root() -> Path:
