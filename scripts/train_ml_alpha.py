@@ -256,6 +256,26 @@ def _validate(X, y):
             "n_splits": 5, "positive_rate": round(float(np.mean(y)), 4)}
 
 
+def _drop_degenerate_columns(X, names: list[str]):
+    """Drop any column with fewer than 2 distinct non-NaN values across the
+    dataset. A constant (or all-missing) column carries zero information —
+    AND crashes HistGradientBoostingClassifier's binning step outright
+    ('window shape cannot be larger than input array shape', a real sklearn
+    limitation when a feature has <2 distinct values in a fold it's fit on).
+    Reports what it drops so a silently-thin macro series doesn't go unnoticed."""
+    keep_idx, kept_names = [], []
+    for j, name in enumerate(names):
+        col = X[:, j]
+        n_unique = len(np.unique(col[~np.isnan(col)]))
+        nan_frac = float(np.isnan(col).mean())
+        print(f"  {name:20} n_unique={n_unique:5d}  nan_frac={nan_frac:.2%}"
+              + ("  -> DROPPED (degenerate)" if n_unique < 2 else ""))
+        if n_unique >= 2:
+            keep_idx.append(j)
+            kept_names.append(name)
+    return X[:, keep_idx], kept_names
+
+
 def main():
     import joblib
     from sklearn.inspection import permutation_importance
@@ -267,7 +287,10 @@ def main():
 
     order = np.argsort(dates)  # chronological pooled panel
     X, y = X[order], y[order]
-    print(f"Total {len(y)} samples, {y.mean():.1%} positive. Validating...")
+    print(f"Total {len(y)} samples, {y.mean():.1%} positive.")
+    print("Feature diagnostics:")
+    X, feature_names = _drop_degenerate_columns(X, COMBINED_FEATURE_NAMES)
+    print("Validating...")
     metrics = _validate(X, y)
     print(f"  OOS accuracy={metrics['accuracy']} auc={metrics['auc']}")
 
@@ -279,14 +302,14 @@ def main():
     perm = permutation_importance(model, X[split:], y[split:], n_repeats=10,
                                   random_state=0)
     importances = {name: round(float(imp), 5)
-                   for name, imp in zip(COMBINED_FEATURE_NAMES, perm.importances_mean)}
+                   for name, imp in zip(feature_names, perm.importances_mean)}
     model = _new_model()
     model.fit(X, y)  # final refit on everything for the artifact
 
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({
         "model": model,
-        "feature_names": COMBINED_FEATURE_NAMES,
+        "feature_names": feature_names,
         "trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "validation_metrics": metrics,
         "feature_importances": importances,
