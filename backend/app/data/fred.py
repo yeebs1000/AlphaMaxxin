@@ -13,20 +13,6 @@ import os
 
 from .base import DiskTTLCache, guard_online, http_get_json, http_get_text, TTL_MACRO
 
-# Series used by skills/macro.py.
-SERIES = {
-    "fed_funds": "FEDFUNDS",       # effective federal funds rate, monthly %
-    "ust2y": "DGS2",               # 2-year treasury constant maturity, daily %
-    "ust10y": "DGS10",             # 10-year treasury constant maturity, daily %
-    "cpi": "CPIAUCSL",             # CPI all urban, index (YoY computed in skill)
-    "core_cpi": "CPILFESL",        # CPI ex food & energy, index
-    "pce": "PCEPI",                # PCE price index (the Fed's preferred inflation gauge)
-    "unemployment": "UNRATE",      # unemployment rate, monthly %
-    "jobless_claims": "ICSA",      # initial jobless claims, weekly
-    "breakeven_10y": "T10YIE",     # 10-year breakeven inflation, daily %
-    "fed_balance_sheet": "WALCL",  # Fed total assets, weekly $ (QE/QT pace)
-}
-
 
 class FredProvider:
     name = "fred"

@@ -5,37 +5,23 @@ the "Machine Learning Alpha Extractor" lens from disabled to live:
 
     python scripts/train_ml_alpha.py
 
-⚠️  THIS HITS THE NETWORK (downloads price history via yfinance). Per the
-project's HARD RULE #1 it is therefore *never* imported by the test suite —
-tests build a tiny synthetic model in-memory instead. Running this is the user's
-call, exactly like triggering a live report.
+⚠️  THIS HITS THE NETWORK (yfinance + FRED). Per HARD RULE #1 it is therefore
+*never* imported by the test suite — tests build a tiny synthetic model
+in-memory instead. Running this is the user's call, like a live report.
 
-What it does: downloads ~10y daily OHLCV for a ~120-name multi-region universe,
-builds features with the SAME app.skills.ml_features.feature_at used at
-inference (no train/serve skew), labels each bar by whether the stock BEATS
-the S&P 500 over the forward HORIZON_DAYS window (relative return, not raw
-direction — a 60-day up move that trails the market isn't the signal we want),
-dropping near-zero relative moves as unlabelable noise. Validates with a
-time-series split, fits a gradient-boosting classifier on all data, and saves
-{model, feature_names, metrics, importances} to
-backend/app/models/ml_alpha_v1.joblib.
+Downloads ~10y daily OHLCV for a ~120-name multi-region universe, builds
+technical features (app.skills.ml_features) and macro features
+(app.skills.ml_macro_features) — the SAME functions live inference uses, no
+train/serve skew — labels each bar by whether the stock beats the S&P 500 over
+HORIZON_DAYS (relative return isolates stock-specific momentum from the
+market's own drift; raw direction gave no edge, see git history), validates
+with a time-series split, and saves {model, feature_names, metrics,
+importances} to backend/app/models/ml_alpha_v1.joblib.
 
-Why relative-to-benchmark instead of raw direction: a first pass trained on
-raw 20-day direction came back at AUC ~0.51 (a coin flip) — the only features
-with any real signal were the momentum ones (ret_60d/120d, sma50_vs_sma200),
-and raw direction is dominated by the market's own drift (56% of days are
-"up" regardless of the stock). Relative return isolates stock-specific
-momentum from beta, and the longer 60-day horizon gives that momentum more
-room to matter than a noisy 20-day window.
-
-This pass ALSO adds macro context (CPI/PPI/curve/NFP/Fed-dot-plot) as features,
-via the SAME app.skills.ml_macro_features.from_macro_snapshot used at live
-inference. Point-in-time correctness: every FRED observation is only treated
-as "known" LAG_DAYS after its reference date (a conservative uniform buffer,
-not real per-series publication timing) — otherwise a historical training
-sample would see a CPI print before it was actually public, an obvious
-lookahead leak. Live serving needs no such lag (today's live snapshot only
-ever contains already-public data).
+Point-in-time correctness: every FRED observation is only treated as "known"
+MACRO_LAG_DAYS after its reference date, so a training sample never sees a
+CPI print before it was actually public. Live serving needs no such lag
+(today's snapshot only ever contains already-public data).
 """
 import bisect
 import datetime
@@ -119,12 +105,10 @@ def _spx_fwd_return(spx_dates, spx_closes, date, horizon: int) -> float | None:
 
 
 def _fetch_macro_series(fred) -> dict:
-    """Every raw FRED series needed for the macro panel, fetched once. limit is
-    generously large (default 400 covers only ~1.6y of the DAILY series DGS2/
-    DGS10 — nowhere near the ~10y+lag training window; the resulting all-NaN
-    early history crashed HistGBM's binning on a fold with zero real values in
-    that column). Harmless for the monthly/quarterly series, which simply
-    return however many observations actually exist."""
+    """Every raw FRED series needed for the macro panel, fetched once. A large
+    limit matters for the DAILY series (DGS2/DGS10) to cover the full ~10y
+    window — the default 400 covers only ~1.6y. Harmless for the lower-
+    frequency series, which simply return however many observations exist."""
     return {sid: fred.series(sid, limit=4000) for sid in _MACRO_SERIES_IDS}
 
 
@@ -262,11 +246,9 @@ def _drop_degenerate_columns(X, names: list[str]):
     split _validate uses) — a column can look fine globally (e.g. the Fed dot
     plot: 14 distinct values over the whole 10y panel) while still being 100%
     NaN in the earliest fold alone, because that data barely existed that far
-    back. HistGradientBoostingClassifier's binning step crashes outright
-    ('window shape cannot be larger than input array shape') on ANY fit call
-    where a column is that degenerate — a global-only check missed this the
-    first time. Reports what it drops so a silently-thin macro series doesn't
-    go unnoticed."""
+    back. HistGradientBoostingClassifier's binning step crashes outright on a
+    fold that degenerate. Reports what it drops so a silently-thin macro
+    series doesn't go unnoticed."""
     from sklearn.model_selection import TimeSeriesSplit
 
     def n_unique(arr):
