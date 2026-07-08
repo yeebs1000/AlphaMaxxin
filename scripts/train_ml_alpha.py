@@ -257,20 +257,33 @@ def _validate(X, y):
 
 
 def _drop_degenerate_columns(X, names: list[str]):
-    """Drop any column with fewer than 2 distinct non-NaN values across the
-    dataset. A constant (or all-missing) column carries zero information —
-    AND crashes HistGradientBoostingClassifier's binning step outright
-    ('window shape cannot be larger than input array shape', a real sklearn
-    limitation when a feature has <2 distinct values in a fold it's fit on).
-    Reports what it drops so a silently-thin macro series doesn't go unnoticed."""
+    """Drop any column with fewer than 2 distinct non-NaN values, checked BOTH
+    globally AND within every TimeSeriesSplit(5) fold's train slice (the same
+    split _validate uses) — a column can look fine globally (e.g. the Fed dot
+    plot: 14 distinct values over the whole 10y panel) while still being 100%
+    NaN in the earliest fold alone, because that data barely existed that far
+    back. HistGradientBoostingClassifier's binning step crashes outright
+    ('window shape cannot be larger than input array shape') on ANY fit call
+    where a column is that degenerate — a global-only check missed this the
+    first time. Reports what it drops so a silently-thin macro series doesn't
+    go unnoticed."""
+    from sklearn.model_selection import TimeSeriesSplit
+
+    def n_unique(arr):
+        return len(np.unique(arr[~np.isnan(arr)]))
+
+    fold_train_idx = [train_idx for train_idx, _ in TimeSeriesSplit(n_splits=5).split(X)]
     keep_idx, kept_names = [], []
     for j, name in enumerate(names):
         col = X[:, j]
-        n_unique = len(np.unique(col[~np.isnan(col)]))
+        global_n = n_unique(col)
+        fold_ns = [n_unique(col[idx]) for idx in fold_train_idx]
+        worst = min([global_n] + fold_ns)
         nan_frac = float(np.isnan(col).mean())
-        print(f"  {name:20} n_unique={n_unique:5d}  nan_frac={nan_frac:.2%}"
-              + ("  -> DROPPED (degenerate)" if n_unique < 2 else ""))
-        if n_unique >= 2:
+        print(f"  {name:20} n_unique={global_n:5d}  min_fold_n_unique={min(fold_ns):5d}"
+              f"  nan_frac={nan_frac:.2%}"
+              + ("  -> DROPPED (degenerate in a fold)" if worst < 2 else ""))
+        if worst >= 2:
             keep_idx.append(j)
             kept_names.append(name)
     return X[:, keep_idx], kept_names
