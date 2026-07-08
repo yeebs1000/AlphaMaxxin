@@ -22,7 +22,7 @@ through everything.
 ## How it works (v2 architecture)
 
 ```
-data feeds ──▶ deterministic skills ──▶ 5 analyst lenses ──▶ 1 synthesis call
+data feeds ──▶ deterministic skills ──▶ analyst lenses ──▶ 1 synthesis call
 (free APIs)    (pure Python, $0)        (cheap LLM, JSON in)   (writes the report)
 ```
 
@@ -31,9 +31,12 @@ data feeds ──▶ deterministic skills ──▶ 5 analyst lenses ──▶ 1
    concentration, earnings & IPO calendars, market screening, news digests,
    congressional-trade lookups, position sizing with ATR stops.
 2. **Analyst lenses** (one cheap LLM call each): Macro, Fundamentals,
-   Technicals & Options, News & Catalysts, Risk. Each receives only compact
-   JSON from the skills and is prompt-bound to **never invent a number** —
-   missing data is reported as missing.
+   Technicals & Options, News & Catalysts, Risk, Order Book & Liquidity, ML
+   Alpha. Each receives only compact JSON from the skills and is prompt-bound
+   to **never invent a number** — missing data is reported as missing.
+   Lenses with no feasible free data feed stay disabled (not deleted) until
+   one exists — shown as off in every report's Coverage section, costing
+   zero tokens.
 3. **Synthesis** (one better-tier call): merges the lenses into a
    decision-ready report — verdict, recommendation table, per-lens case,
    explicit conflicts, and a coverage section listing what the report could
@@ -43,25 +46,6 @@ A full portfolio report costs a few cents, not tens of dollars: ~15–30K
 tokens versus the ~300K of the old 33-agent pipeline. Identical re-runs
 within 24h are served from a local cache for free, and a cost meter tracks
 every call.
-
-### Lens transparency
-
-Some lenses have **no feasible free data feed** yet: Alternative Data,
-ML Alpha, Digital Footprint. They are **disabled, not deleted** — each
-shows in the UI with what would enable it, and wiring a real provider into
-`backend/app/data/` flips it on. Disabled lenses cost zero tokens and are
-listed in every report's Coverage section, so you always know what the
-analysis could and couldn't see. Wiring one up is a great first
-contribution — see the ready-to-enable specs in
-`backend/app/llm/prompts/lenses_disabled/`.
-
-The **Order Book & Liquidity Profiler** is the proof this works: it started
-as a disabled lens and is now live — it reads real Level 2 depth through
-moomoo's OpenD gateway (requires an L2 market-data entitlement on your
-moomoo account) and runs in the Portfolio Medic and Quant Lab presets,
-judging spreads, book imbalance, and execution feasibility from actual
-resting orders. When OpenD is down or a market isn't entitled, it shows as
-disabled again and costs nothing.
 
 ---
 
