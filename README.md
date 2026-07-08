@@ -1,5 +1,7 @@
 # AlphaMaxxin
 
+[![CI](https://github.com/yeebs1000/AlphaMaxxin/actions/workflows/ci.yml/badge.svg)](https://github.com/yeebs1000/AlphaMaxxin/actions/workflows/ci.yml) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Read--only](https://img.shields.io/badge/broker%20access-read--only-brightgreen)
+
 A local, multi-lens investment analyst. Python computes every number —
 technicals, fundamentals, macro, risk, catalysts — from real data feeds, and
 a small set of AI "analyst lenses" interprets those numbers into a single
