@@ -36,15 +36,24 @@ class FakeYahoo:
 class FakeFinnhub:
     name = "finnhub"
 
-    def __init__(self, news=None, metrics=None, earnings=None, ipos=None, available=True):
+    def __init__(self, news=None, metrics=None, earnings=None, ipos=None,
+                 insiders=None, rec_trends=None, available=True):
         self._news = news or {}
         self._metrics = metrics or {}
         self._earnings = earnings or []
         self._ipos = ipos or []
+        self._insiders = insiders or {}
+        self._rec_trends = rec_trends or {}
         self.available = available
 
     def news(self, ticker, days=7):
         return self._news.get(ticker.replace(".SI", "").upper(), [])
+
+    def insider_transactions(self, ticker):
+        return self._insiders.get(ticker.replace(".SI", "").upper(), [])
+
+    def recommendation_trends(self, ticker):
+        return self._rec_trends.get(ticker.replace(".SI", "").upper(), [])
 
     def metrics(self, ticker):
         return self._metrics.get(ticker.replace(".SI", "").upper())

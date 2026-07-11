@@ -14,7 +14,7 @@ PRESETS = {
     "Opportunist": {
         "description": "Scan the broad market for new high-conviction setups.",
         "skills": ["screener", "technicals", "fundamentals", "news", "catalysts",
-                   "signals", "risk"],
+                   "insiders", "signals", "risk"],
         "analysts": ["fundamentals", "technicals_options", "news_catalysts", "risk"],
         "market_scan": True,
         "regions": None,
@@ -79,8 +79,8 @@ PRESETS = {
         "regions": None,
     },
     "Insider Edge": {
-        "description": "Congressional trading disclosures, news, and catalysts.",
-        "skills": ["politician_trades", "news", "catalysts", "risk"],
+        "description": "Corporate insider filings, congressional trades, news, and catalysts.",
+        "skills": ["politician_trades", "insiders", "news", "catalysts", "risk"],
         "analysts": ["news_catalysts", "risk"],
         "market_scan": True,
         "regions": None,

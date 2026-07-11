@@ -17,7 +17,7 @@ from ..skills import (
     signals as signals_skill, performance as perf_skill,
     portfolio_construction as pc_skill, options_math, politician_trades as pol_skill,
     order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
-    strategies as strat_skill,
+    strategies as strat_skill, insiders as ins_skill,
 )
 from . import ledger, store
 from .presets import get_preset
@@ -238,6 +238,10 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
         out["ml_alpha"] = ml_skill.predict_targets(tickers, fetched["daily"],
                                                    macro=macro_snapshot)
 
+    if "insiders" in wanted:
+        emit("skills", "Digesting insider filings", 70)
+        out["insiders"] = ins_skill.fetch_insiders(registry.finnhub, tickers)
+
     if "politician_trades" in wanted:
         emit("skills", "Checking congressional disclosures", 70)
         provider = pol_skill.PoliticianTradesProvider(registry.yahoo._cache) \
@@ -292,6 +296,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "news_catalysts":
         return {**common, "news": skills.get("news"),
                 "catalysts": skills.get("catalysts"),
+                "insiders": skills.get("insiders"),
                 "politician_trades": skills.get("politician_trades")}
     if role == "risk":
         return {**common, "risk": skills.get("risk"),

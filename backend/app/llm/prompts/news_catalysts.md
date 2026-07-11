@@ -17,6 +17,13 @@ A JSON envelope containing:
 - `politician_trades` (when the feed is up): recent congressional
   transactions in the target tickers from official PTR disclosure dumps,
   with a `feed_ok` flag.
+- `insiders` (when the feed is up): per-ticker Form-4 digest over the last
+  90 days — open-market buys/sells only (option exercises, grants, and gifts
+  already filtered out as administrative noise), distinct buyer count, net
+  shares, and a `cluster_buying` flag (≥3 distinct open-market buyers — the
+  pattern with real signal literature). A ticker absent here had no
+  qualifying activity; `feed_ok: false` means the feed was down. Weight
+  cluster buys well above a lone routine sale.
 - `run_config`.
 
 ## Hard rules — data grounding

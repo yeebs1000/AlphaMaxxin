@@ -109,6 +109,26 @@ class FinnhubProvider:
             return payload.get("earningsCalendar", []) or []
         return []
 
+    def insider_transactions(self, ticker: str) -> list[dict]:
+        """Form-4 insider transactions (free tier). Rows: {name, share, change,
+        filingDate, transactionDate, transactionCode, transactionPrice}."""
+        clean = ticker.replace(".SI", "").upper()
+        payload = self._cache.get_or_fetch(
+            "finnhub_insiders", clean, TTL_FUNDAMENTALS,
+            lambda: self._get("stock/insider-transactions", f"symbol={clean}"))
+        if isinstance(payload, dict):
+            return payload.get("data", []) or []
+        return []
+
+    def recommendation_trends(self, ticker: str) -> list[dict]:
+        """Monthly analyst recommendation counts (free tier), newest first:
+        [{period, strongBuy, buy, hold, sell, strongSell}]."""
+        clean = ticker.replace(".SI", "").upper()
+        payload = self._cache.get_or_fetch(
+            "finnhub_rectrends", clean, TTL_FUNDAMENTALS,
+            lambda: self._get("stock/recommendation", f"symbol={clean}"))
+        return payload if isinstance(payload, list) else []
+
     def ipo_calendar(self, from_date: str, to_date: str) -> list[dict]:
         """Upcoming IPOs in [from_date, to_date]. Returns
         [{date, name, symbol, exchange, price, shares, status, ...}]."""
