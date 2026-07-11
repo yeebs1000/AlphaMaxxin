@@ -33,7 +33,17 @@ def _rec_line(r: dict) -> str:
     return f"• {r['ticker']} — {r.get('action', '?')} · {r.get('conviction', '?')}{size}{why}"
 
 
-def build_message(reports: dict, now: datetime.datetime | None = None) -> str:
+def _ledger_line(ledger_summary: dict | None) -> str | None:
+    """One calibration line, only once calls have actually resolved."""
+    by_conv = (ledger_summary or {}).get("by_conviction", {})
+    parts = [f"{conv} {int(s['hit_rate'] * 100)}% hit ({s['resolved']} resolved)"
+             for conv, s in by_conv.items()
+             if s.get("resolved") and s.get("hit_rate") is not None]
+    return "📒 Ledger: " + " · ".join(parts) if parts else None
+
+
+def build_message(reports: dict, now: datetime.datetime | None = None,
+                  ledger_summary: dict | None = None) -> str:
     """reports: {preset_name: report_dict}. → compact plain-text message."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     us, hk, sg = (cal.status("US", now), cal.status("HK", now), cal.status("SG", now))
@@ -53,6 +63,9 @@ def build_message(reports: dict, now: datetime.datetime | None = None) -> str:
     watch = [r for r in med.get("recommendations", []) if r.get("action") in _TRIM]
     lines.append("🩺 Look out for (your holdings)")
     lines += [_rec_line(r) for r in watch[:_IDEAS_LIMIT]] or ["• nothing flagged to trim today"]
+    ledger_line = _ledger_line(ledger_summary)
+    if ledger_line:
+        lines += ["", ledger_line]
     lines += ["", "Full report → run the workstation."]
     return "\n".join(lines)
 
@@ -87,6 +100,21 @@ def _refresh_portfolio() -> None:
         print(f"[digest] broker sync failed, using existing Portfolio.md: {e}")
 
 
+def _score_ledger() -> dict | None:
+    """Daily conviction-ledger scoring — quote caches are warm from the report
+    runs, so this is free. Fails soft."""
+    from .data.live_quote import live_quote
+    from .data.registry import get_default_registry
+    from .reports import ledger
+    try:
+        registry = get_default_registry()
+        ledger.score(lambda t: live_quote(t, registry.yahoo))
+        return ledger.summary()
+    except Exception as e:  # noqa: BLE001
+        print(f"[digest] ledger scoring failed: {e}")
+        return None
+
+
 def run_digest(presets=_DIGEST_PRESETS, sender=None) -> str | None:
     """Run the presets, build the message, send it. Returns the message (or
     None if skipped). `sender` defaults to Telegram; tests pass a fake."""
@@ -96,7 +124,8 @@ def run_digest(presets=_DIGEST_PRESETS, sender=None) -> str | None:
     if "Portfolio Medic" in presets:
         _refresh_portfolio()
     reports = {p: asyncio.run(_run_preset(p)) for p in presets}
-    message = build_message(reports)
+    ledger_summary = _score_ledger()
+    message = build_message(reports, ledger_summary=ledger_summary)
     # Send first — a console/log encoding hiccup must never swallow delivery.
     if sender is None:
         from .notify.telegram import send_message as sender

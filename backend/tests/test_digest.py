@@ -33,6 +33,16 @@ def test_build_message_handles_missing_reports():
     assert "no high-conviction ideas" in msg and "nothing flagged" in msg
 
 
+def test_build_message_ledger_line_only_when_resolved():
+    summary = {"by_conviction": {
+        "high": {"resolved": 13, "hit_rate": 0.62},
+        "medium": {"resolved": 0, "hit_rate": None}}}
+    msg = digest.build_message({}, now=_WEEKDAY, ledger_summary=summary)
+    assert "📒 Ledger: high 62% hit (13 resolved)" in msg
+    assert "medium" not in msg                       # nothing resolved → omitted
+    assert "Ledger" not in digest.build_message({}, now=_WEEKDAY)  # no summary
+
+
 def test_run_digest_skips_non_trading_day(monkeypatch):
     monkeypatch.setattr(digest.cal, "is_trading_day", lambda *a, **k: False)
     sent = []

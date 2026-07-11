@@ -19,7 +19,7 @@ from ..skills import (
     order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
     strategies as strat_skill,
 )
-from . import store
+from . import ledger, store
 from .presets import get_preset
 
 
@@ -390,4 +390,6 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
         "costs": meter.run_total(run_id) if meter else {},
         "versions": {"schema": 1},
     }
-    return store.save_report(report, reports_dir=reports_dir)
+    report_id = store.save_report(report, reports_dir=reports_dir)
+    ledger.record(report)  # failure-soft; report is already saved
+    return report_id

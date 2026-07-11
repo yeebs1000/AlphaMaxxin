@@ -7,9 +7,13 @@ testing never call APIs; live runs are done manually by the user.
 """
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 os.environ["ALPHAMAXXIN_OFFLINE"] = "1"
+# Pipeline runs in tests hit the ledger hook — point it at a temp file so the
+# suite never writes the real data_store/ledger.json.
+os.environ["ALPHAMAXXIN_LEDGER_FILE"] = os.path.join(tempfile.mkdtemp(), "ledger.json")
 
 # Make `backend.app.*` and `app.*` both importable when pytest runs from backend/.
 _BACKEND_DIR = Path(__file__).resolve().parent.parent

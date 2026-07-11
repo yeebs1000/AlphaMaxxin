@@ -95,6 +95,11 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     assert index[0]["id"] == report_id
     assert "fetch" in events and "synthesis" in events
 
+    # Ledger hook ran: MSFT's levels were recorded (conftest points the ledger
+    # at a temp file, so this never touches the real data_store).
+    from app.reports import ledger
+    assert "MSFT" in ledger._load()["levels"]
+
     # Disabled lenses recorded, never billed
     lenses = {l["id"]: l for l in report["lens_status"]}
     assert lenses["order_book"]["enabled"] is False
