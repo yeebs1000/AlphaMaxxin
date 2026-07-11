@@ -17,7 +17,7 @@ from ..skills import (
     signals as signals_skill, performance as perf_skill,
     portfolio_construction as pc_skill, options_math, politician_trades as pol_skill,
     order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
-    strategies as strat_skill, insiders as ins_skill,
+    strategies as strat_skill, insiders as ins_skill, supply_chain as sc_skill,
 )
 from . import ledger, store
 from .presets import get_preset
@@ -146,6 +146,10 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
         emit("skills", "Reviewing the market", 36)
         out["market_review"] = mr_skill.compute_market_review(
             registry.yahoo, regions=preset.get("regions"))
+
+    if "supply_chain" in wanted:
+        emit("skills", "Reading supply-chain flow", 38)
+        out["supply_chain"] = sc_skill.compute_chains(registry.yahoo)
 
     if "news" in wanted:
         emit("skills", "Fetching and digesting news", 42)
@@ -283,6 +287,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
         fx_exposure = (skills.get("risk") or {}).get("currency_exposure")
         return {**common, "macro": skills.get("macro"),
                 "market_review": skills.get("market_review"),
+                "supply_chain": skills.get("supply_chain"),
                 "news": skills.get("news"),
                 "portfolio_fx_exposure": fx_exposure}
     if role == "fundamentals":

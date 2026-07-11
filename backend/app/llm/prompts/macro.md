@@ -48,6 +48,14 @@ A JSON envelope containing:
   (HK/JP/KR/SG regional presets scope your focus to that market).
 - `portfolio_fx_exposure`: the book's currency weights, when analyzing a
   portfolio.
+- `supply_chain` (when present): per-chain tier momentum from curated value
+  chains (memory/semis, data centers, optics, EV) — median 3-month momentum
+  for upstream (equipment/materials), midstream (makers), downstream
+  (consumers of the output), plus `upstream_minus_downstream_pct` and a
+  mechanical `read` (upstream leading = early-cycle pattern). Narrate the
+  computed divergences for sector rotation; never invent shipment or order
+  data — this is price-derived tier momentum, not real flow volumes, and
+  should be framed that way.
 - `news` (when present): recent ticker-scoped headlines and sentiment —
   usable as directional color for your stance, not a source of macro facts
   (macro facts must come from `macro` itself).

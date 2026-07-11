@@ -20,8 +20,8 @@ PRESETS = {
         "regions": None,
     },
     "Macro Pulse": {
-        "description": "Global macro, rates, FX, and a market review backdrop.",
-        "skills": ["macro", "market_review", "news"],
+        "description": "Global macro, rates, FX, market review, and supply-chain flow.",
+        "skills": ["macro", "market_review", "supply_chain", "news"],
         "analysts": ["macro", "news_catalysts"],
         "market_scan": True,
         "regions": None,
