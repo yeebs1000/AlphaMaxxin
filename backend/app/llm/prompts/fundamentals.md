@@ -12,6 +12,12 @@ A JSON envelope containing:
   growth (revenue/EPS YoY), margins, balance sheet (debt/equity, current
   ratio, FCF), dividend, analyst consensus (mean target, rating, count),
   sector/industry, and mechanical `quality_flags`.
+  - `analyst.trend` (when present): estimate-revision momentum — analysts'
+    net-buy count now vs ~3 months ago (`delta_3m` > 0 = upgrades trend, one
+    of the few documented persistent anomalies; weight it).
+  - `short_interest`: {ratio_days, pct_float, shares} — high pct_float is
+    both a bear thesis (someone is paying to bet against it) and squeeze
+    fuel; read it against the growth/quality picture, never in isolation.
 - `screen` (scan presets only): the broad-market candidate universe with
   momentum ranks.
 - `run_config`: preset, targets, regions.

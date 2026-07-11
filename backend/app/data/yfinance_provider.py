@@ -28,6 +28,9 @@ _INFO_FIELDS = {
     "targetMeanPrice": "target_mean",
     "recommendationKey": "rec",
     "numberOfAnalystOpinions": "analyst_count",
+    "shortRatio": "short_ratio",
+    "shortPercentOfFloat": "short_pct_float",
+    "sharesShort": "shares_short",
     "sector": "sector",
     "industry": "industry",
     "marketCap": "market_cap",
@@ -46,6 +49,7 @@ _NUMERIC_FIELDS = {
     "gross_margin", "op_margin", "net_margin", "debt_to_equity",
     "current_ratio", "fcf", "dividend_yield", "payout_ratio",
     "target_mean", "analyst_count", "market_cap", "price",
+    "short_ratio", "short_pct_float", "shares_short",
 }
 
 

@@ -273,6 +273,40 @@ def test_fundamentals_none_without_sources():
     assert fundamentals.compute_fundamentals("CCC", None, None) is None
 
 
+def test_fundamentals_short_interest_and_flag():
+    raw = {"ticker": "SHRT", "price": 10.0, "short_ratio": 6.2,
+           "short_pct_float": 0.23, "shares_short": 4.5e7}
+    snap = fundamentals.compute_fundamentals("SHRT", raw)
+    si = snap["short_interest"]
+    assert si["ratio_days"] == 6.2 and si["pct_float"] == 0.23
+    assert any("heavily shorted (23% of float)" in f for f in snap["quality_flags"])
+    # Below threshold → no flag.
+    ok = fundamentals.compute_fundamentals("OK", {"ticker": "OK", "price": 1.0,
+                                                  "short_pct_float": 0.03})
+    assert not any("shorted" in f for f in ok["quality_flags"])
+
+
+def test_fundamentals_analyst_trend_from_rec_trends():
+    trends = [{"period": "2026-07-01", "strongBuy": 13, "buy": 23, "hold": 16,
+               "sell": 2, "strongSell": 0},
+              {"period": "2026-06-01", "strongBuy": 14, "buy": 24, "hold": 15,
+               "sell": 2, "strongSell": 0},
+              {"period": "2026-05-01", "strongBuy": 12, "buy": 20, "hold": 18,
+               "sell": 3, "strongSell": 1},
+              {"period": "2026-04-01", "strongBuy": 10, "buy": 18, "hold": 20,
+               "sell": 5, "strongSell": 2}]
+    snap = fundamentals.compute_fundamentals("AAA", {"ticker": "AAA", "price": 1.0},
+                                             rec_trends=trends)
+    t = snap["analyst"]["trend"]
+    assert t["net_buy"] == 34            # 13+23-2-0
+    assert t["net_buy_3m_ago"] == 21     # 10+18-5-2
+    assert t["delta_3m"] == 13           # upgrading
+    # Short history → no delta, no crash.
+    short = fundamentals.compute_fundamentals("BBB", {"ticker": "BBB", "price": 1.0},
+                                              rec_trends=trends[:1])
+    assert short["analyst"]["trend"]["delta_3m"] is None
+
+
 def test_fundamentals_finnhub_drops_non_numeric_sentinel():
     """Finnhub's free tier occasionally emits a sentinel string ("NM") for
     an undefined ratio instead of omitting the field — must be dropped, not

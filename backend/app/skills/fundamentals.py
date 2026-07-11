@@ -5,19 +5,38 @@ from ..data.base import to_number
 
 
 def compute_fundamentals(ticker: str, yf_raw: dict | None,
-                         finnhub_metrics: dict | None = None) -> dict | None:
+                         finnhub_metrics: dict | None = None,
+                         rec_trends: list | None = None) -> dict | None:
     """FundamentalsSnapshot from whichever raw source is available, or None.
     yf_raw is the flat dict from YFinanceProvider.fundamentals();
-    finnhub_metrics is the response of /stock/metric (metric=all)."""
+    finnhub_metrics is the response of /stock/metric (metric=all);
+    rec_trends is finnhub's monthly recommendation counts (newest first)."""
+    snap = None
     if yf_raw:
         snap = _from_yfinance(ticker, yf_raw)
         snap["source"] = "yfinance"
-        return snap
-    if finnhub_metrics:
+    elif finnhub_metrics:
         snap = _from_finnhub(ticker, finnhub_metrics)
         snap["source"] = "finnhub"
-        return snap
-    return None
+    if snap and rec_trends:
+        snap["analyst"]["trend"] = _analyst_trend(rec_trends)
+    return snap
+
+
+def _analyst_trend(trends: list) -> dict | None:
+    """Estimate-revision momentum from monthly recommendation counts: net buy
+    score now vs ~3 months ago. Positive delta = analysts upgrading."""
+    def net_buy(row):
+        return ((row.get("strongBuy") or 0) + (row.get("buy") or 0)
+                - (row.get("sell") or 0) - (row.get("strongSell") or 0))
+    if not trends:
+        return None
+    latest = net_buy(trends[0])
+    prior = net_buy(trends[3]) if len(trends) > 3 else None
+    return {"net_buy": latest,
+            "net_buy_3m_ago": prior,
+            "delta_3m": (latest - prior) if prior is not None else None,
+            "period": trends[0].get("period")}
 
 
 def _from_yfinance(ticker: str, raw: dict) -> dict:
@@ -65,6 +84,11 @@ def _from_yfinance(ticker: str, raw: dict) -> dict:
             "target_mean": n(raw.get("target_mean")),
             "rec": raw.get("rec"),
             "count": n(raw.get("analyst_count")),
+        },
+        "short_interest": {
+            "ratio_days": n(raw.get("short_ratio")),
+            "pct_float": n(raw.get("short_pct_float")),
+            "shares": n(raw.get("shares_short")),
         },
         "quality_flags": _quality_flags(raw),
     }
@@ -136,4 +160,7 @@ def _quality_flags(raw: dict) -> list[str]:
     fcf = to_number(raw.get("fcf"))
     if fcf is not None and fcf < 0:
         flags.append("negative free cash flow")
+    short_pct = to_number(raw.get("short_pct_float"))
+    if short_pct is not None and short_pct > 0.10:
+        flags.append(f"heavily shorted ({short_pct:.0%} of float) — squeeze/thesis risk")
     return flags

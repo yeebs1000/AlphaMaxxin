@@ -132,7 +132,8 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
             symbol = fetched["symbols"].get(t, t)
             yf_raw = registry.yfinance.fundamentals(symbol) if registry.yfinance.available else None
             fh = registry.finnhub.metrics(t) if (yf_raw is None and registry.finnhub.available) else None
-            snap = fund_skill.compute_fundamentals(t, yf_raw, fh)
+            trends = registry.finnhub.recommendation_trends(t) if registry.finnhub.available else None
+            snap = fund_skill.compute_fundamentals(t, yf_raw, fh, rec_trends=trends)
             if snap:
                 out["fundamentals"][t] = snap
 
