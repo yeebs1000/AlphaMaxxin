@@ -112,4 +112,15 @@ def test_chain_summary():
     assert s["straddle_implied_move_pct"] == pytest.approx(5.8)  # (3.0+2.8)/100
     assert s["max_oi_call_strike"] == 100
     assert s["max_oi_put_strike"] == 100
+    assert s["put_call_oi_ratio"] == pytest.approx(820 / 550, abs=0.001)
     assert options_math.chain_summary(None) is None
+
+
+def test_max_pain():
+    calls = [{"strike": 95, "oi": 100}, {"strike": 100, "oi": 500}]
+    puts = [{"strike": 100, "oi": 500}, {"strike": 105, "oi": 100}]
+    # Symmetric OI around 100 → pain minimized at 100.
+    assert options_math.max_pain(calls, puts) == 100
+    # Heavy put OI at 105 drags the pin upward.
+    assert options_math.max_pain(calls, [{"strike": 105, "oi": 5000}]) == 105
+    assert options_math.max_pain([], []) is None

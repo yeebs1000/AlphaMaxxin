@@ -74,6 +74,9 @@ def chain_summary(chain: dict, r: float = 0.045) -> dict | None:
     implied_move_pct = (straddle / spot) * 100 if spot else None
     top_oi_call = max(calls, key=lambda x: x["oi"], default=None)
     top_oi_put = max(puts, key=lambda x: x["oi"], default=None)
+
+    call_oi = sum(c["oi"] for c in calls)
+    put_oi = sum(p["oi"] for p in puts)
     return {
         "expiry": chain.get("expiry"),
         "spot": spot,
@@ -81,4 +84,21 @@ def chain_summary(chain: dict, r: float = 0.045) -> dict | None:
         "straddle_implied_move_pct": implied_move_pct,
         "max_oi_call_strike": top_oi_call["strike"] if top_oi_call else None,
         "max_oi_put_strike": top_oi_put["strike"] if top_oi_put else None,
+        "put_call_oi_ratio": round(put_oi / call_oi, 3) if call_oi else None,
+        "max_pain_strike": max_pain(calls, puts),
     }
+
+
+def max_pain(calls: list[dict], puts: list[dict]) -> float | None:
+    """Strike minimizing total option-holder payoff at expiry (= writers'
+    sweet spot). A positioning magnet near expiry, not a forecast."""
+    strikes = sorted({row["strike"] for row in calls + puts})
+    if not strikes:
+        return None
+    best_strike, best_pain = None, None
+    for s in strikes:
+        pain = (sum(c["oi"] * max(s - c["strike"], 0.0) for c in calls)
+                + sum(p["oi"] * max(p["strike"] - s, 0.0) for p in puts))
+        if best_pain is None or pain < best_pain:
+            best_strike, best_pain = s, pain
+    return best_strike

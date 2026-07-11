@@ -25,8 +25,11 @@ A JSON envelope containing:
   counts. Use it to say which strategies AGREE and which CONFLICT on a name;
   a high bull/bear split is a real signal. These are deterministic — cite
   them, don't recompute or invent verdicts.
-- `options` (US tickers, when available): nearest-expiry chain summary
-  (ATM IV, straddle-implied move, max-OI strikes).
+- `options` (US tickers, when available): nearest-expiry chain summary —
+  ATM IV, straddle-implied move, max-OI strikes, `put_call_oi_ratio`
+  (>1 = put-heavy positioning; extremes are contrarian tells), and
+  `max_pain_strike` (the writers' pin level — a positioning magnet near
+  expiry, not a forecast; frame it that way).
 - `screen` (scan presets): candidate universe with momentum ranks.
 - `run_config`.
 
