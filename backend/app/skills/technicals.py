@@ -164,7 +164,14 @@ def compute_snapshot(ticker: str, daily: dict, higher: dict | None = None,
 
 def _mechanical_signal(snap: dict) -> dict:
     """Transparent −100..+100 score from the computed indicators, with the
-    contributing reasons spelled out. Free — no LLM involved."""
+    contributing reasons spelled out. Free — no LLM involved.
+
+    Weights are calibrated to the 2026-07 event-study backtest (52k events,
+    120 tickers, 10y — scripts/backtest_signals.py): oversold mean-reversion
+    carried the only large edge (+2.9%/60d), the death cross was the best
+    bearish flag, trend/MACD contributions measured weak-to-wrong-signed at
+    60d and previously over-dominated the score (extreme-bullish quintile
+    underperformed the middle). Re-run the backtest after changing these."""
     score = 0
     reasons = []
     last = snap["last_close"]
@@ -172,25 +179,25 @@ def _mechanical_signal(snap: dict) -> dict:
     rsi14 = snap.get("rsi14")
     if rsi14 is not None:
         if rsi14 < 30:
-            score += 25; reasons.append(f"RSI {rsi14:.0f} oversold (+25)")
+            score += 30; reasons.append(f"RSI {rsi14:.0f} oversold (+30)")
         elif rsi14 < 45:
             score += 10; reasons.append(f"RSI {rsi14:.0f} below neutral (+10)")
         elif rsi14 > 70:
-            score -= 25; reasons.append(f"RSI {rsi14:.0f} overbought (-25)")
+            score -= 10; reasons.append(f"RSI {rsi14:.0f} overbought (-10)")
         elif rsi14 > 60:
-            score -= 10; reasons.append(f"RSI {rsi14:.0f} elevated (-10)")
+            score -= 5; reasons.append(f"RSI {rsi14:.0f} elevated (-5)")
 
     sma50, sma200 = snap.get("sma50"), snap.get("sma200")
     if sma50 is not None:
         if last > sma50:
-            score += 15; reasons.append("above 50-day SMA (+15)")
+            score += 10; reasons.append("above 50-day SMA (+10)")
         else:
-            score -= 15; reasons.append("below 50-day SMA (-15)")
+            score -= 10; reasons.append("below 50-day SMA (-10)")
     if sma200 is not None:
         if last > sma200:
-            score += 15; reasons.append("above 200-day SMA (+15)")
+            score += 10; reasons.append("above 200-day SMA (+10)")
         else:
-            score -= 15; reasons.append("below 200-day SMA (-15)")
+            score -= 10; reasons.append("below 200-day SMA (-10)")
     if sma50 is not None and sma200 is not None:
         if sma50 > sma200:
             score += 10; reasons.append("golden alignment 50>200 (+10)")
@@ -200,15 +207,22 @@ def _mechanical_signal(snap: dict) -> dict:
     macd_vals = snap.get("macd")
     if macd_vals:
         if macd_vals["histogram"] > 0:
-            score += 15; reasons.append("MACD histogram positive (+15)")
+            score += 5; reasons.append("MACD histogram positive (+5)")
         else:
-            score -= 15; reasons.append("MACD histogram negative (-15)")
+            score -= 5; reasons.append("MACD histogram negative (-5)")
 
     trend = snap.get("higher_timeframe_trend")
     if trend == "Uptrend":
-        score += 20; reasons.append("weekly uptrend (+20)")
+        score += 10; reasons.append("weekly uptrend (+10)")
     elif trend == "Downtrend":
-        score -= 20; reasons.append("weekly downtrend (-20)")
+        score -= 10; reasons.append("weekly downtrend (-10)")
+
+    # ponytail: known ceiling — the TOP score quintile still underperforms the
+    # middle (~4.5% vs ~6.2% fwd 60d): max-score names are late-cycle by
+    # construction, and an extended-trend interaction penalty was tried and
+    # only flattened the useful mid-range ranking (see backtest history).
+    # Treat very high scores as "strong but extended", and lean on the RSI
+    # Reversion strategy (the one large measured edge) for fresh entries.
 
     score = max(-100, min(100, score))
     label = ("strong buy" if score >= 60 else "buy" if score >= 25
