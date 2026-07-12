@@ -368,7 +368,8 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     prescreened = None
     if preset.get("market_scan") and "screener" in preset["skills"]:
         emit("fetch", "Screening the market for candidates", 6)
-        scan_holdings, prescreened = _scan_candidates(registry, preset)
+        scan_holdings, prescreened = await asyncio.to_thread(
+            _scan_candidates, registry, preset)
         if scan_holdings:
             holdings = scan_holdings
             target_label = f"Market scan — {preset['name']}"
@@ -380,7 +381,11 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
                   "regions": preset.get("regions"),
                   "market_scan": preset.get("market_scan", False)}
 
-    skills = run_skills(registry, preset, holdings, emit, prescreened=prescreened)
+    # The skills stage is synchronous network-heavy code — run it off the
+    # event loop, or the API server can't even flush the run-started response
+    # (a cold-cache full-team run blocks the loop for minutes).
+    skills = await asyncio.to_thread(run_skills, registry, preset, holdings,
+                                     emit, prescreened=prescreened)
 
     # Real-book runs leave a daily equity snapshot behind — the digest makes
     # this a weekday series, enabling book-level TWR/drawdown/Sharpe.
