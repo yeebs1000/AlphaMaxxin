@@ -386,6 +386,11 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
             # the call rather than billing an analyst whose entire input
             # would be "no data".
             roles.remove(data_lens)
+    # Annotate lens transparency so the synthesis can't conflate "not part of
+    # this preset" with "feed down" (it hallucinated exactly that once).
+    for lens in lens_status:
+        lens["in_preset"] = lens["id"] in preset["analysts"]
+        lens["ran"] = lens["id"] in roles
     models = {**settings["models"], **config.get("model_overrides", {})}
 
     emit("analysts", f"Running {len(roles)} analyst lenses", 72)

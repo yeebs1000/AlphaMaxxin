@@ -29,8 +29,11 @@ A JSON envelope containing:
   present on region-scoped or scanning presets).
 - `summary`: portfolio value/P&L/weights (portfolio runs) or the target
   ticker list (ticker/watchlist runs).
-- `lens_status`: every analysis lens with enabled/disabled state and, for
-  disabled ones, what feed would enable it.
+- `lens_status`: every analysis lens with `enabled` (its data feed is up),
+  `in_preset` (this preset includes it), and `ran` (it actually executed this
+  run) — plus, for feed-disabled ones, what would enable it. These three
+  flags are DISTINCT: never describe an enabled lens that simply isn't in
+  this preset as "unavailable" or "requires a feed".
 - `run_config`: preset name, target, regions.
 
 ## Hard rules
@@ -44,9 +47,13 @@ A JSON envelope containing:
    silently. The conflict register is often the most valuable section.
 3. An analyst with `ok: false` gets one line in the report: "<name> analysis
    unavailable this run." Never reconstruct what it might have said.
-4. Disabled lenses: add one short "Coverage" line listing lenses that were
-   off and why (from lens_status) — the reader must know what this report
-   could NOT see. Do not speculate about what they would have found.
+4. Coverage uses lens_status's three flags, in exactly three buckets:
+   (a) `ran: true` → ran; (b) `enabled: true` but `in_preset: false` →
+   "not part of this preset" (available, just not selected — NEVER call
+   these unavailable or blame a feed); (c) `enabled: false` → feed-disabled,
+   with the enable hint. A lens with `in_preset: true, ran: false` was
+   skipped for lack of data this run — say that. Do not speculate about
+   what any non-running lens would have found.
 5. Conviction discipline: a "high conviction" recommendation requires at
    least three analysts ok, no unresolved stance conflict on that ticker,
    and composite conviction "high". Otherwise cap at medium/low. Say which
