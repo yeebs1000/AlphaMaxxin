@@ -188,21 +188,19 @@ def test_cost_meter_totals_and_cached(tmp_path):
 # ---------------------------------------------------------------------------
 # lens registry
 # ---------------------------------------------------------------------------
-def test_lens_status_disabled_lenses_off_by_default():
+def test_lens_status_reflects_feed_availability():
     feed_status = {"yahoo": True, "finnhub": True, "alphavantage": False,
-                   "fred": True, "yfinance": True}
+                   "fred": True, "yfinance": True,
+                   "altdata": True, "devdata": True}
     lenses = {l["id"]: l for l in analysts.lens_status(feed_status)}
-    assert len(lenses) == 9  # 7 analysts + 2 disabled lenses
+    assert len(lenses) == 9  # all 9 promoted analysts; no disabled stubs left
     for analyst_id in analysts.ANALYSTS:
         if analyst_id in ("order_book", "ml_alpha"):
-            # promoted analysts, but their feeds (moomoo L2 / trained model)
-            # are down here
+            # feeds down in this fixture (moomoo L2 / trained model)
             assert lenses[analyst_id]["enabled"] is False
         else:
             assert lenses[analyst_id]["enabled"] is True
-    for lens_id, spec in analysts.DISABLED_LENSES.items():
-        assert lenses[lens_id]["enabled"] is False
-        assert lenses[lens_id]["enable_hint"]
+    assert analysts.DISABLED_LENSES == {}  # machinery kept, currently empty
 
 
 

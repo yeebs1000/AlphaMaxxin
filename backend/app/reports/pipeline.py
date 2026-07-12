@@ -19,7 +19,8 @@ from ..skills import (
     portfolio_construction as pc_skill, options_math, politician_trades as pol_skill,
     order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
     strategies as strat_skill, insiders as ins_skill, supply_chain as sc_skill,
-    dividends as div_skill,
+    dividends as div_skill, alt_data as alt_skill,
+    digital_footprint as dfp_skill,
 )
 from . import ledger, store
 from .presets import get_preset
@@ -258,6 +259,14 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
         out["ml_alpha"] = ml_skill.predict_targets(tickers, fetched["daily"],
                                                    macro=macro_snapshot)
 
+    if "alt_data" in wanted:
+        emit("skills", "Reading attention proxies", 71)
+        out["alt_data"] = alt_skill.collect(tickers)
+
+    if "digital_footprint" in wanted:
+        emit("skills", "Scanning developer footprint", 71)
+        out["digital_footprint"] = dfp_skill.collect(tickers)
+
     if "insiders" in wanted:
         emit("skills", "Digesting insider filings", 70)
         out["insiders"] = ins_skill.fetch_insiders(registry.finnhub, tickers)
@@ -334,6 +343,11 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "ml_alpha":
         return {**common, "ml_alpha": skills.get("ml_alpha"),
                 "technicals": skills.get("technicals")}
+    if role == "alternative_data":
+        return {**common, "alt_data": skills.get("alt_data"),
+                "technicals": skills.get("technicals")}
+    if role == "digital_footprint":
+        return {**common, "footprint": skills.get("digital_footprint")}
     raise KeyError(role)
 
 
@@ -379,12 +393,15 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     lens_status = an.lens_status(feed_status)
     enabled = {l["id"] for l in lens_status if l["enabled"]}
     roles = [r for r in preset["analysts"] if r in enabled]
-    for data_lens in ("order_book", "ml_alpha"):
-        if data_lens in roles and not skills.get(data_lens):
-            # Feed is up but no target ticker produced data (order book:
-            # unentitled market/closed; ml_alpha: too little history) — skip
-            # the call rather than billing an analyst whose entire input
-            # would be "no data".
+    # Data-driven lenses are skipped when no target ticker produced data
+    # (unentitled market, too little history, nothing in the curated map) —
+    # never bill an analyst whose entire input would be "no data".
+    _lens_data = {"order_book": skills.get("order_book"),
+                  "ml_alpha": skills.get("ml_alpha"),
+                  "alternative_data": (skills.get("alt_data") or {}).get("by_ticker"),
+                  "digital_footprint": (skills.get("digital_footprint") or {}).get("by_ticker")}
+    for data_lens, data in _lens_data.items():
+        if data_lens in roles and not data:
             roles.remove(data_lens)
     # Annotate lens transparency so the synthesis can't conflate "not part of
     # this preset" with "feed down" (it hallucinated exactly that once).

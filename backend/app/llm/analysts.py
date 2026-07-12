@@ -59,26 +59,26 @@ ANALYSTS = {
         "prompt_file": "ml_alpha.md",
         "required_feeds": ["ml_model"],
     },
-}
-
-# v1 agents with no feasible free feed — kept as ready-to-enable slots.
-# Each names the feed a contributor would need to wire into app/data/ (and
-# register in feed_status) to turn the lens on. Excluded from default
-# report configs while disabled: unverifiable output can't raise conviction.
-DISABLED_LENSES = {
+    # Promoted 2026-07: attention/demand proxies from official keyless APIs
+    # (Wikipedia pageviews, iTunes, Greenhouse boards) — see data/altdata.py.
     "alternative_data": {
         "name": "Alternative Data Analyst",
-        "prompt_file": "lenses_disabled/alternative_data.md",
+        "prompt_file": "alternative_data.md",
         "required_feeds": ["altdata"],
-        "enable_hint": "wire a satellite/web alt-data provider (e.g. SimilarWeb) into app/data/",
     },
+    # Promoted 2026-07: GitHub/npm/PyPI/Docker developer mindshare — see
+    # data/devdata.py.
     "digital_footprint": {
         "name": "Digital Footprint & Developer Momentum Scanner",
-        "prompt_file": "lenses_disabled/digital_footprint.md",
+        "prompt_file": "digital_footprint.md",
         "required_feeds": ["devdata"],
-        "enable_hint": "wire GitHub/PyPI/npm stats providers into app/data/",
     },
 }
+
+# Ready-to-enable slots for future lenses with no feasible free feed yet —
+# empty since the last two v1 holdouts were promoted above, but the registry
+# machinery stays (lenses get disabled here, never deleted).
+DISABLED_LENSES: dict = {}
 
 
 def lens_status(feed_status: dict) -> list[dict]:

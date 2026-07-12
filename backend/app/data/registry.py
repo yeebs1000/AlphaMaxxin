@@ -34,6 +34,8 @@ class ProviderRegistry:
             "yfinance": self.yfinance.available,
             "orderbook": _orderbook_feed_up(),
             "ml_model": _ml_model_feed_up(),
+            "altdata": True,   # keyless official APIs (wiki/iTunes/Greenhouse)
+            "devdata": True,   # keyless official APIs (GitHub/npm/PyPI/Docker)
         }
 
 
