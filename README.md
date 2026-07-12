@@ -103,6 +103,23 @@ Ten one-click report configurations, e.g.:
 
 ---
 
+## MCP server (use AlphaMaxxin from any AI agent)
+
+The deterministic skills are also exposed as read-only [MCP](https://modelcontextprotocol.io)
+tools, so Claude Code / Claude Desktop / any MCP client can query your live
+portfolio, technicals, macro snapshot, conviction ledger, and backtest results
+directly. From the `backend/` directory:
+
+```
+claude mcp add alphamaxxin -- py -m app.mcp_server
+```
+
+Every tool is read-only and free (computed data from the cached feeds).
+Nothing that spends LLM money or mutates state is exposed — report runs and
+portfolio edits stay in the app.
+
+---
+
 ## Linking your broker
 
 `Portfolio.md` is what the analysis reads. Edit it in the app's Portfolio

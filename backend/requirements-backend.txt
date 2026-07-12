@@ -9,6 +9,7 @@ sse-starlette
 numpy
 tenacity
 python-dotenv
+mcp
 requests
 
 # Data providers (all optional at runtime, required for full functionality)
