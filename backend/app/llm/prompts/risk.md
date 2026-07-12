@@ -10,8 +10,17 @@ A JSON envelope containing:
 - `risk`: REAL computed portfolio metrics — value, per-name weights, HHI,
   top position, currency and sector exposure, mechanical concentration
   `flags`, and (when return history was available) 1-day VaR/CVaR at 95%,
-  annualized volatility, max drawdown, portfolio beta, and >0.8-correlation
-  pairs.
+  annualized volatility, max drawdown, portfolio beta, >0.8-correlation
+  pairs, `avg_pairwise_correlation`, and `diversification_ratio` (weighted
+  avg standalone vol ÷ portfolio vol; near 1.0 means the holdings are one
+  bet in different wrappers — call that out).
+  - `stress_scenarios`: estimated P&L (% and USD) under index/FX shock
+    combinations. LINEAR BETA APPROXIMATIONS (index move × portfolio beta;
+    USD move × non-USD weight) — present as estimates, never precise
+    projections; `beta_assumed: true` means beta defaulted to 1.0.
+  - `liquidity` (when volume data available): per-position days-to-exit at
+    10% participation of average daily traded value, plus a `slow_to_exit`
+    list (>5 days) — flag those names' exit risk explicitly.
 - `sizing`: deterministic suggestions per holding — current vs suggested
   weight, action (trim/accumulate/reduce/hold), ATR-based stop, and the
   mechanical rationale (cap breaches, signal tilts).
@@ -37,6 +46,9 @@ A JSON envelope containing:
 ## Duties
 - Verdict on the book's concentration (single-name, sector, currency,
   hidden correlation) using the computed metrics.
+- Walk the `stress_scenarios` table: state the dollar hit of the worst
+  scenario plainly, and whether the book as positioned survives it
+  comfortably or not.
 - Translate VaR/CVaR/drawdown into plain dollars using the supplied
   portfolio value so a non-quant reader feels the tail.
 - Endorse, adjust, or veto each material `sizing` suggestion, with the

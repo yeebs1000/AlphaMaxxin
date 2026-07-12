@@ -13,7 +13,10 @@ import numpy as np
 def compute_risk(holdings: list[dict], values_usd: dict,
                  returns: dict | None = None,
                  benchmark_returns: list | None = None,
-                 sectors: dict | None = None) -> dict:
+                 sectors: dict | None = None,
+                 adv_usd: dict | None = None) -> dict:
+    """adv_usd: {ticker: average daily traded value in USD} — enables the
+    liquidity (days-to-liquidate) block when supplied."""
     total = sum(values_usd.get(h["ticker"], 0.0) for h in holdings)
     weights = {h["ticker"]: (values_usd.get(h["ticker"], 0.0) / total if total else 0.0)
                for h in holdings}
@@ -47,7 +50,56 @@ def compute_risk(holdings: list[dict], values_usd: dict,
 
     if returns:
         report.update(_return_based_metrics(weights, returns, benchmark_returns))
+    report["stress_scenarios"] = _stress_scenarios(
+        report.get("portfolio_beta"), currency_exposure, total)
+    if adv_usd:
+        report["liquidity"] = _liquidity(values_usd, adv_usd)
     return report
+
+
+# Shock grid: index moves applied through portfolio beta; FX applied to the
+# non-USD share of the book. Linear beta approximations — a real desk layers
+# convexity/factor models on top; the analyst must present these as estimates.
+_SCENARIOS = [
+    {"name": "index -5%", "index_pct": -5.0, "usd_up_pct": 0.0},
+    {"name": "index -10%", "index_pct": -10.0, "usd_up_pct": 0.0},
+    {"name": "index -20% (crash)", "index_pct": -20.0, "usd_up_pct": 0.0},
+    {"name": "risk-off (index -10%, USD +3%)", "index_pct": -10.0, "usd_up_pct": 3.0},
+    {"name": "USD +5% (FX shock only)", "index_pct": 0.0, "usd_up_pct": 5.0},
+]
+
+
+def _stress_scenarios(beta, currency_exposure: dict, total_usd: float) -> list[dict]:
+    """Estimated portfolio P&L under each shock. Needs beta for the index leg
+    (falls back to 1.0 with a flag when returns were unavailable)."""
+    beta_used = beta if beta is not None else 1.0
+    foreign_weight = sum(w for ccy, w in currency_exposure.items() if ccy != "USD")
+    out = []
+    for s in _SCENARIOS:
+        pnl_pct = beta_used * s["index_pct"] - foreign_weight * s["usd_up_pct"]
+        out.append({"scenario": s["name"],
+                    "est_pnl_pct": round(pnl_pct, 2),
+                    "est_pnl_usd": round(total_usd * pnl_pct / 100, 0),
+                    "beta_assumed": beta is None})
+    return out
+
+
+def _liquidity(values_usd: dict, adv_usd: dict) -> dict:
+    """Days to exit each position at 10% of average daily traded value — the
+    standard participation-rate yardstick. Flags positions needing >5 days."""
+    per_position = {}
+    slow = []
+    for ticker, value in values_usd.items():
+        adv = adv_usd.get(ticker)
+        if not adv or not value:
+            continue
+        days = value / (adv * 0.10)
+        per_position[ticker] = round(days, 1)
+        if days > 5:
+            slow.append(ticker)
+    return {"days_to_liquidate_10pct": per_position,
+            "participation_rate": 0.10,
+            "slow_to_exit": slow}
 
 
 def _concentration_flags(weights, sector_weights, currency_exposure) -> list[str]:
@@ -104,17 +156,28 @@ def _return_based_metrics(weights, returns, benchmark_returns) -> dict:
         if var_b > 0:
             out["portfolio_beta"] = float(np.cov(p, b)[0, 1] / var_b)
 
-    # Highly correlated pairs (>0.8) — hidden concentration
+    # Correlation structure — hidden concentration and true diversification
     tickers = [t for t in weights if t in returns and len(returns[t]) > 1]
     n_bars = min((len(returns[t]) for t in tickers), default=0)
     high_corr = []
-    if n_bars >= 20:
+    if n_bars >= 20 and len(tickers) >= 2:
         mat = np.array([np.asarray(returns[t], dtype=float)[-n_bars:] for t in tickers])
         corr = np.corrcoef(mat)
+        pair_corrs = []
         for i in range(len(tickers)):
             for j in range(i + 1, len(tickers)):
+                pair_corrs.append(float(corr[i, j]))
                 if corr[i, j] > 0.8:
                     high_corr.append({"a": tickers[i], "b": tickers[j],
                                       "corr": float(corr[i, j])})
+        out["avg_pairwise_correlation"] = round(float(np.mean(pair_corrs)), 3)
+        # Diversification ratio: weighted avg standalone vol / portfolio vol.
+        # 1.0 = one bet in different wrappers; higher = real diversification.
+        w = np.array([weights[t] for t in tickers])
+        vols = mat.std(axis=1, ddof=1)
+        port_vol = float(np.std(port, ddof=1))
+        if port_vol > 0 and w.sum() > 0:
+            out["diversification_ratio"] = round(
+                float((w / w.sum() * vols).sum()) / port_vol, 2)
     out["high_correlation_pairs"] = high_corr
     return out

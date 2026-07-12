@@ -77,6 +77,12 @@ A JSON envelope containing:
      block below and vice-versa. No name appears in the lens-by-lens section as
      a recommendation unless it is in this table.
    - Order the table by conviction then suggested_weight_pct, highest first.
+   - **Thesis breaker**: under each ticker's block, one line naming the
+     specific observable condition that would invalidate the call — drawn
+     from the supplied data (e.g. "breaks $X stop", "core PPI re-accelerates
+     past Y%", "insider cluster reverses to net selling"). A recommendation
+     without its falsifier is advocacy, not research. Never invent data-free
+     breakers.
 4. **The case, lens by lens** — one concise section per analyst that ran,
    condensed from their narrative_md (reuse any table it already built) to
    what changes decisions — don't just paste the full narrative verbatim.

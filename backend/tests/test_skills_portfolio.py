@@ -60,6 +60,57 @@ def test_high_correlation_pairs():
     assert all("CCC" not in p for p in pairs)
 
 
+def test_stress_scenarios_beta_and_fx_legs():
+    rng = np.random.default_rng(7)
+    rets = rng.normal(0, 0.01, 252).tolist()
+    # Beta = 1 (portfolio is the benchmark); 20% of book in SGD.
+    values = {"AAA": 500.0, "BBB": 300.0, "CCC": 200.0}
+    report = risk.compute_risk(HOLDINGS, values,
+                               returns={"AAA": rets, "BBB": rets, "CCC": rets},
+                               benchmark_returns=rets)
+    by_name = {s["scenario"]: s for s in report["stress_scenarios"]}
+    crash = by_name["index -20% (crash)"]
+    assert crash["est_pnl_pct"] == pytest.approx(-20.0, abs=0.1)
+    assert crash["est_pnl_usd"] == pytest.approx(-200.0, abs=2)
+    assert crash["beta_assumed"] is False
+    fx_only = by_name["USD +5% (FX shock only)"]
+    assert fx_only["est_pnl_pct"] == pytest.approx(-0.2 * 5.0, abs=0.01)  # 20% SGD
+    risk_off = by_name["risk-off (index -10%, USD +3%)"]
+    assert risk_off["est_pnl_pct"] == pytest.approx(-10.0 - 0.2 * 3.0, abs=0.1)
+
+
+def test_stress_scenarios_without_returns_flags_assumed_beta():
+    report = risk.compute_risk(HOLDINGS, {"AAA": 1000.0})
+    assert all(s["beta_assumed"] for s in report["stress_scenarios"])
+
+
+def test_liquidity_days_to_exit():
+    values = {"AAA": 1000.0, "BBB": 100.0}
+    adv = {"AAA": 100.0, "BBB": 10000.0}   # AAA: 1000/(100*0.1) = 100 days
+    report = risk.compute_risk(HOLDINGS[:2], values, adv_usd=adv)
+    liq = report["liquidity"]
+    assert liq["days_to_liquidate_10pct"]["AAA"] == pytest.approx(100.0)
+    assert liq["days_to_liquidate_10pct"]["BBB"] == pytest.approx(0.1)
+    assert liq["slow_to_exit"] == ["AAA"]
+    # No ADV supplied → no liquidity block at all.
+    assert "liquidity" not in risk.compute_risk(HOLDINGS, values)
+
+
+def test_diversification_ratio_one_bet_vs_spread():
+    rng = np.random.default_rng(3)
+    base = rng.normal(0, 0.01, 100)
+    same = {"AAA": base.tolist(), "BBB": base.tolist(), "CCC": base.tolist()}
+    values = {"AAA": 300.0, "BBB": 300.0, "CCC": 400.0}
+    clones = risk.compute_risk(HOLDINGS, values, returns=same)
+    assert clones["diversification_ratio"] == pytest.approx(1.0, abs=0.01)
+    assert clones["avg_pairwise_correlation"] == pytest.approx(1.0, abs=0.01)
+    indep = {"AAA": rng.normal(0, 0.01, 100).tolist(),
+             "BBB": rng.normal(0, 0.01, 100).tolist(),
+             "CCC": rng.normal(0, 0.01, 100).tolist()}
+    spread = risk.compute_risk(HOLDINGS, values, returns=indep)
+    assert spread["diversification_ratio"] > 1.3   # real diversification
+
+
 # ---------------------------------------------------------------------------
 # fx / performance
 # ---------------------------------------------------------------------------

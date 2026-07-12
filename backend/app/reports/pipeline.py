@@ -182,12 +182,16 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
                 values_usd[h["ticker"]] = (h["quantity"] * quote["price"]
                                            * fetched["fx"].get(ccy, 1.0))
         bench = registry.yahoo.ohlcv("^GSPC", "1d", "1y")
+        adv_usd = {t: s["avg_volume_20d"] * s["last_close"]
+                   for t, s in out.get("technicals", {}).items()
+                   if s.get("avg_volume_20d") and s.get("last_close")}
         out["risk"] = risk_skill.compute_risk(
             holdings, values_usd,
             returns=_returns_from_daily(fetched["daily"]),
             benchmark_returns=_returns_from_daily({"^GSPC": bench}).get("^GSPC"),
             sectors={t: s.get("sector") for t, s in out.get("fundamentals", {}).items()
-                     if s.get("sector")})
+                     if s.get("sector")},
+            adv_usd=adv_usd)
 
     if "strategies" in wanted and out.get("technicals"):
         emit("skills", "Running strategy panel", 62)
