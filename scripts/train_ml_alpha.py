@@ -86,6 +86,7 @@ def _download(ticker: str):
     col = lambda name: (df[name][ticker] if isinstance(df.columns, __import__("pandas").MultiIndex)
                         else df[name])
     return {
+        "opens": [float(x) for x in col("Open").tolist()],
         "closes": [float(x) for x in col("Close").tolist()],
         "highs": [float(x) for x in col("High").tolist()],
         "lows": [float(x) for x in col("Low").tolist()],

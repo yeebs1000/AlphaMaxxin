@@ -135,6 +135,22 @@ async def test_market_scan_analyzes_screened_candidates_not_portfolio(
     assert report["sections"]["skills"]["screen"]["US"][0]["ticker"] == "RBLX"
 
 
+def test_red_line_veto_forces_pass_tier():
+    from app.skills.signals import recommendation_block
+    tech = {"last_close": 10.0, "atr14": 0.5}
+    distressed = {"margins": {"net": -0.1}, "balance": {"fcf": -1e6, "debt_to_equity": 300},
+                  "growth": {}, "short_interest": {}}
+    block = recommendation_block("BAD", tech, distressed,
+                                 composite={"conviction": "high", "composite_score": 80})
+    assert block["red_lines"] and block["size_tier"] == "Pass"
+    assert block["suggested_weight_pct"] == 0.0
+    healthy = {"margins": {"net": 0.2}, "balance": {"fcf": 1e6, "debt_to_equity": 50},
+               "growth": {"rev_yoy": 0.1}, "short_interest": {"pct_float": 0.02}}
+    ok = recommendation_block("OK", tech, healthy,
+                              composite={"conviction": "high", "composite_score": 80})
+    assert ok["red_lines"] == [] and ok["size_tier"] != "Pass"
+
+
 def test_size_tier_buckets():
     from app.skills.signals import _size_tier
     assert _size_tier("high", 2.0)["label"] == "Full"        # high + good R:R

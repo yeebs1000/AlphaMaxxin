@@ -89,6 +89,18 @@ def volume_surge(ctx) -> dict | None:
               25 if bullish else -25, f"volume {vol/avg:.1f}× 20d avg")
 
 
+# REFUTED and removed after backtest validation (52k events, 120 tickers,
+# 10y, 60d horizon — see git history for the implementations):
+#   Candlestick Reversal  bearish +0.93% WRONG-signed (patterns after advances
+#                         are momentum markers, not sell signals), bullish
+#                         +0.15% noise
+#   52w-High Breakout     -1.10% wrong-signed
+#   Platform Breakout     -2.38% wrong-signed
+#   Volume Breakout       n=38, inconclusive
+# The candle DETECTORS live on in skills/candles.py as descriptive context.
+# Re-test at other horizons before ever re-adding one of these as a verdict.
+
+
 def value_quality(ctx) -> dict | None:
     """Cheap-and-growing screen from fundamentals."""
     f = ctx.get("fundamentals") or {}

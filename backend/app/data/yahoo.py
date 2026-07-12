@@ -36,7 +36,9 @@ class YahooProvider:
 
     def ohlcv(self, ticker: str, interval: str = "1d", range_: str = "1y") -> dict | None:
         """Regular-session OHLCV bars. Returns
-        {"timestamps","closes","highs","lows","volumes"} (gap rows dropped) or None."""
+        {"timestamps","opens","closes","highs","lows","volumes"} (gap rows
+        dropped) or None. Consumers must treat "opens" as optional — cached
+        entries from before it was added, and some fallback providers, lack it."""
         key = f"{ticker}:{interval}:{range_}"
         return self._cache.get_or_fetch("yahoo_ohlcv", key, TTL_OHLCV,
                                         lambda: self._fetch_ohlcv(ticker, interval, range_))
@@ -52,16 +54,17 @@ class YahooProvider:
             timestamps = result.get("timestamp", [])
             quote = result["indicators"]["quote"][0]
             rows = [
-                (t, c, h, l, v)
-                for t, c, h, l, v in zip(timestamps, quote["close"], quote["high"],
-                                         quote["low"], quote["volume"])
-                if c is not None and h is not None and l is not None and v is not None
+                (t, o, c, h, l, v)
+                for t, o, c, h, l, v in zip(timestamps, quote["open"], quote["close"],
+                                            quote["high"], quote["low"], quote["volume"])
+                if (c is not None and h is not None and l is not None
+                    and v is not None and o is not None)
             ]
             if len(rows) < 5:
                 return None
-            ts, closes, highs, lows, volumes = (list(col) for col in zip(*rows))
-            return {"timestamps": ts, "closes": closes, "highs": highs,
-                    "lows": lows, "volumes": volumes}
+            ts, opens, closes, highs, lows, volumes = (list(col) for col in zip(*rows))
+            return {"timestamps": ts, "opens": opens, "closes": closes,
+                    "highs": highs, "lows": lows, "volumes": volumes}
         except Exception:
             return None
 

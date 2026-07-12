@@ -107,6 +107,23 @@ def aggregate(ticker: str, technical_snap: dict | None,
             "coverage": round(coverage, 2)}
 
 
+def _red_lines(fundamentals_snap: dict | None) -> list[str]:
+    """Hard disqualifiers — distress combinations that veto any buy sizing
+    regardless of technicals, in the spirit of a desk's rejection list. Each
+    condition alone is a flag; the COMBINATION is the red line."""
+    f = fundamentals_snap or {}
+    margins, balance = f.get("margins") or {}, f.get("balance") or {}
+    growth, short = f.get("growth") or {}, f.get("short_interest") or {}
+    out = []
+    if ((balance.get("fcf") or 0) < 0 and (margins.get("net") or 0) < 0
+            and (balance.get("debt_to_equity") or 0) > 200):
+        out.append("distress combo: negative FCF + unprofitable + heavily levered")
+    if ((growth.get("rev_yoy") or 0) < 0 and (margins.get("net") or 0) < 0
+            and (short.get("pct_float") or 0) > 0.15):
+        out.append("melting-ice combo: shrinking revenue + unprofitable + >15% short")
+    return out
+
+
 def _size_tier(conviction: str, rr: float | None) -> dict:
     """How much to buy, from conviction + base risk/reward. Deterministic
     buckets (never LLM-invented) so the report can show one clear size per name.
@@ -140,7 +157,11 @@ def recommendation_block(ticker: str, technical_snap: dict | None,
     stop = atr_stop if atr_stop is not None else round(price - 2 * atr, 2)
     rr_base = round((base_target - price) / (price - stop), 2) if price > stop else None
     conviction = (composite or {}).get("conviction", "low")
-    tier = _size_tier(conviction, rr_base)
+    red_lines = _red_lines(fundamentals_snap)
+    # A tripped red line vetoes buy sizing outright — the synthesis prompt is
+    # bound to it: no buy/accumulate on a "Pass" tier with red_lines present.
+    tier = {"label": "Pass", "weight_pct": 0.0} if red_lines \
+        else _size_tier(conviction, rr_base)
     return {
         "ticker": ticker,
         "current_price": round(price, 2),
@@ -152,6 +173,7 @@ def recommendation_block(ticker: str, technical_snap: dict | None,
         "conviction": conviction,
         "size_tier": tier["label"],
         "suggested_weight_pct": tier["weight_pct"],
+        "red_lines": red_lines,
         "composite_score": (composite or {}).get("composite_score"),
         "target_source": "analyst consensus" if analyst_target
                          else "ATR-projected (no analyst target available this run)",

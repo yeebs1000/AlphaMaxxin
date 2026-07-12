@@ -4,6 +4,8 @@ OHLCV dicts in, JSON-serializable snapshot out. No network.
 """
 import numpy as np
 
+from . import candles
+
 
 def sma(values, period: int) -> float | None:
     values = np.asarray(values, dtype=float)
@@ -154,6 +156,11 @@ def compute_snapshot(ticker: str, daily: dict, higher: dict | None = None,
         "last_volume": float(volumes[-1]),
         "avg_volume_20d": sma(volumes, 20),
         "last_turnover": float(closes[-1]) * float(volumes[-1]),
+        "high_20": float(np.max(highs[-20:])) if len(highs) >= 20 else None,
+        "high_252": float(np.max(highs[-252:])) if len(highs) >= 252 else None,
+        # Empty when the bars carry no opens (older cache entries, some
+        # fallback providers) — detectors need real opens, never guesses.
+        "candle_patterns": candles.detect(daily.get("opens"), closes, highs, lows),
         "higher_timeframe_label": higher_label,
         "higher_timeframe_trend": higher_trend,
         "bars_used": len(closes),

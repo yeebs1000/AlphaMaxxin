@@ -21,7 +21,10 @@ A JSON envelope containing:
   target_source) — every number here is precomputed from real
   ATR/analyst-consensus/sizing data. `size_tier` (Full/Half/Starter/Pass) and
   `suggested_weight_pct` are the deterministic "how much to buy" — present
-  them, never invent your own size.
+  them, never invent your own size. A non-empty `red_lines` list is a HARD
+  VETO: that ticker can never receive a buy/accumulate action this run, no
+  matter how bullish other lenses read — state the veto and its reason in
+  one line instead.
 - `regional_signals`: mechanical -2..+2 momentum score per region (only
   present on region-scoped or scanning presets).
 - `summary`: portfolio value/P&L/weights (portfolio runs) or the target

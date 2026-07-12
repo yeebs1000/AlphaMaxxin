@@ -34,3 +34,13 @@ def test_ticker_without_data_is_absent():
 def test_rsi_reversion_only_fires_at_extremes():
     assert st.rsi_reversion({"technicals": {"rsi14": 50}}) is None
     assert st.rsi_reversion({"technicals": {"rsi14": 20}})["stance"] == "bullish"
+
+
+def test_refuted_strategies_stay_out_of_the_panel():
+    """Backtest-refuted strategies (candlestick reversal, 52w-high/platform/
+    volume breakouts) must not silently return to the verdict panel — the
+    detectors remain descriptive context only (see skills/candles.py)."""
+    names = {fn.__name__ for fn in st.STRATEGIES}
+    assert names == {"ma_crossover", "rsi_reversion", "macd_momentum",
+                     "trend_following", "bollinger_breakout", "volume_surge",
+                     "value_quality"}

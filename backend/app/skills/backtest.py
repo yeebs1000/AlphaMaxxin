@@ -36,12 +36,15 @@ def collect_events(ticker: str, bars: dict, step: int = 5,
     forward outcomes. History-only inputs; future bars only in outcomes."""
     closes, highs = bars["closes"], bars["highs"]
     lows, volumes = bars["lows"], bars["volumes"]
+    opens = bars.get("opens")
     max_h = max(max(horizons), RESOLUTION_WINDOW)
     events = []
     for i in range(MIN_HISTORY - 1, len(closes) - max_h, step):
         start = max(0, i + 1 - WINDOW)
         daily = {"closes": closes[start:i + 1], "highs": highs[start:i + 1],
                  "lows": lows[start:i + 1], "volumes": volumes[start:i + 1]}
+        if opens:
+            daily["opens"] = opens[start:i + 1]
         snap = technicals.compute_snapshot(ticker, daily,
                                            _weekly_from_daily(daily["closes"]))
         if not snap or snap.get("atr14") is None:

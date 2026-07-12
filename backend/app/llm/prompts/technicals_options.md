@@ -22,7 +22,12 @@ A JSON envelope containing:
   named, code-computed strategies (MA Crossover, RSI Reversion, MACD
   Momentum, Trend Following, Bollinger Breakout, Volume Surge, Value +
   Quality) — each with stance/score/reason, plus `net_score`, `bull`, `bear`
-  counts. Use it to say which strategies AGREE and which CONFLICT on a name;
+  counts. Per-ticker snapshots also carry `candle_patterns` (detected
+  formations, e.g. bullish_engulfing, morning_star) — DESCRIPTIVE context
+  only: our own 10-year backtest measured these patterns as carrying no
+  tradable directional edge at a 60-day horizon (bearish formations were
+  mildly WRONG-signed). You may mention a formation as color; never let one
+  drive an entry/exit call. Use it to say which strategies AGREE and which CONFLICT on a name;
   a high bull/bear split is a real signal. These are deterministic — cite
   them, don't recompute or invent verdicts.
 - `options` (US tickers, when available): nearest-expiry chain summary —

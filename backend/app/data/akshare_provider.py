@@ -17,7 +17,8 @@ from .base import guard_online
 _PERIOD = {"1d": "daily", "1wk": "weekly"}
 _CCY = {"HK": "HKD", "CN": "CNY"}
 # akshare hist column headers (Chinese) → our fields.
-_COLS = {"close": "收盘", "high": "最高", "low": "最低", "volume": "成交量"}
+_COLS = {"open": "开盘", "close": "收盘", "high": "最高", "low": "最低",
+         "volume": "成交量"}
 
 
 @lru_cache(maxsize=1)
@@ -63,8 +64,9 @@ def ohlcv(ticker: str, interval: str = "1d", range_: str = "1y") -> dict | None:
         if df is None or df.empty:
             return None
         return {name: df[col].astype(float).tolist() for name, col in
-                {"closes": _COLS["close"], "highs": _COLS["high"],
-                 "lows": _COLS["low"], "volumes": _COLS["volume"]}.items()}
+                {"opens": _COLS["open"], "closes": _COLS["close"],
+                 "highs": _COLS["high"], "lows": _COLS["low"],
+                 "volumes": _COLS["volume"]}.items()}
     except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
         return None
 
