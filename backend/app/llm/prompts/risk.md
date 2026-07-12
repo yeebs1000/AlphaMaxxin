@@ -24,6 +24,16 @@ A JSON envelope containing:
 - `sizing`: deterministic suggestions per holding — current vs suggested
   weight, action (trim/accumulate/reduce/hold), ATR-based stop, and the
   mechanical rationale (cap breaches, signal tilts).
+- `min_variance_tilt` (when present): a SECOND, covariance-aware sizing view —
+  long-only minimum-variance weights from a Ledoit-Wolf shrunk covariance,
+  with `biggest_shifts` vs current weights. Where it agrees with `sizing`,
+  say so (two independent methods converging is meaningful); where they
+  clash, present both and explain the difference (signal tilt vs volatility
+  structure) rather than picking silently.
+- `equity_history` (when present): the BOOK's own snapshot-based performance —
+  TWR (deposit-adjusted), max drawdown, Sharpe/Sortino, snapshot count. This
+  is the user's actual account trajectory, not a holding's chart; quote it
+  when judging whether the book's risk level has been paying off.
 - `recommendation_blocks`: the same standardized entry/target/stop block the
   Technicals analyst narrates — use its `bear_stop` and `risk_reward_base`
   as the exit/reward anchors when you validate a sizing suggestion; don't

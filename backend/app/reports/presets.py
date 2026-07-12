@@ -29,7 +29,7 @@ PRESETS = {
     "Portfolio Medic": {
         "description": "Health check on your existing holdings.",
         "skills": ["technicals", "fundamentals", "risk", "portfolio_construction",
-                   "performance", "signals", "order_book"],
+                   "performance", "signals", "order_book", "dividends"],
         "analysts": ["fundamentals", "technicals_options", "risk", "order_book"],
         "market_scan": False,
         "regions": None,

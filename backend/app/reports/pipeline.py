@@ -7,6 +7,7 @@ reported as such."""
 import asyncio
 import datetime
 
+from .. import equity_history
 from .. import portfolio as pf
 from .. import watchlists as wl
 from ..data.live_quote import live_quote, live_ohlcv
@@ -18,6 +19,7 @@ from ..skills import (
     portfolio_construction as pc_skill, options_math, politician_trades as pol_skill,
     order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
     strategies as strat_skill, insiders as ins_skill, supply_chain as sc_skill,
+    dividends as div_skill,
 )
 from . import ledger, store
 from .presets import get_preset
@@ -213,6 +215,15 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
         out["sizing"] = pc_skill.suggest_sizing(out["summary"],
                                                 out.get("composites", {}),
                                                 out.get("technicals"))
+        weights = (out.get("risk") or {}).get("weights") or {}
+        if weights:
+            out["min_variance_tilt"] = pc_skill.min_variance_tilt(
+                weights, _returns_from_daily(fetched["daily"]))
+
+    if "dividends" in wanted:
+        emit("skills", "Reading dividend income", 66)
+        out["dividends"] = div_skill.income_view(
+            holdings, fetched["symbols"], fetched["quotes"], registry.yfinance)
 
     if out.get("technicals"):
         sizing_by_ticker = {s["ticker"]: s for s in out.get("sizing", [])}
@@ -296,6 +307,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
                 "portfolio_fx_exposure": fx_exposure}
     if role == "fundamentals":
         return {**common, "fundamentals": skills.get("fundamentals"),
+                "dividends": skills.get("dividends"),
                 "screen": skills.get("screen")}
     if role == "technicals_options":
         return {**common, "technicals": skills.get("technicals"),
@@ -311,6 +323,8 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "risk":
         return {**common, "risk": skills.get("risk"),
                 "sizing": skills.get("sizing"),
+                "min_variance_tilt": skills.get("min_variance_tilt"),
+                "equity_history": skills.get("equity_history"),
                 "recommendation_blocks": skills.get("recommendation_blocks"),
                 "composites": skills.get("composites")}
     if role == "order_book":
@@ -353,6 +367,13 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
                   "market_scan": preset.get("market_scan", False)}
 
     skills = run_skills(registry, preset, holdings, emit, prescreened=prescreened)
+
+    # Real-book runs leave a daily equity snapshot behind — the digest makes
+    # this a weekday series, enabling book-level TWR/drawdown/Sharpe.
+    if config.get("target", {}).get("kind", "portfolio") == "portfolio" \
+            and skills.get("summary"):
+        equity_history.record(skills["summary"])
+        skills["equity_history"] = equity_history.metrics()
 
     feed_status = registry.feed_status()
     lens_status = an.lens_status(feed_status)

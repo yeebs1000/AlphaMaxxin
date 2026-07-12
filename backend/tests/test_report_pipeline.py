@@ -242,7 +242,7 @@ def test_all_presets_reference_valid_lenses_and_skills():
                     "catalysts", "screener", "signals", "performance",
                     "portfolio_construction", "options_math", "politician_trades",
                     "order_book", "ml_alpha", "market_review", "strategies",
-                    "insiders", "supply_chain"}
+                    "insiders", "supply_chain", "dividends"}
     assert len(PRESETS) == 10  # Lite + the 9 full v1 presets
     for preset in list_presets():
         assert set(preset["analysts"]) <= set(ANALYSTS)

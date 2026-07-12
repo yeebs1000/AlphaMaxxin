@@ -103,6 +103,35 @@ class YFinanceProvider:
                 return None
         return sanitize_info(ticker, info)
 
+    def dividends(self, ticker: str) -> dict | None:
+        """{"ttm_dps": trailing-12mo dividends per share, "ex_dividend_date":
+        "YYYY-MM-DD" | None} or None when the symbol pays nothing / fetch fails."""
+        return self._cache.get_or_fetch("yf_dividends", ticker, TTL_FUNDAMENTALS,
+                                        lambda: self._fetch_dividends(ticker))
+
+    def _fetch_dividends(self, ticker: str) -> dict | None:
+        guard_online()
+        try:
+            import datetime
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            series = t.dividends
+            ttm = 0.0
+            if series is not None and len(series):
+                cutoff = (datetime.datetime.now(datetime.timezone.utc)
+                          - datetime.timedelta(days=365))
+                tail = series[series.index >= cutoff]
+                ttm = float(tail.sum())
+            ex_epoch = (t.info or {}).get("exDividendDate")
+            ex_date = (datetime.datetime.fromtimestamp(
+                ex_epoch, tz=datetime.timezone.utc).date().isoformat()
+                if ex_epoch else None)
+            if not ttm and not ex_date:
+                return None
+            return {"ttm_dps": round(ttm, 4), "ex_dividend_date": ex_date}
+        except Exception:
+            return None
+
     def option_chain(self, ticker: str) -> dict | None:
         """Nearest-expiry option chain (US tickers only):
         {"expiry", "spot", "calls": [{strike, last, bid, ask, iv, oi}], "puts": [...]}"""

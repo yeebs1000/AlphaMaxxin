@@ -18,6 +18,10 @@ A JSON envelope containing:
   - `short_interest`: {ratio_days, pct_float, shares} — high pct_float is
     both a bear thesis (someone is paying to bet against it) and squeeze
     fuel; read it against the growth/quality picture, never in isolation.
+- `dividends` (when present): per-holding income view — trailing-12mo
+  dividends per share, current yield, yield-on-cost, and ex-dividend dates
+  within 30 days (`ex_dates_soon`, sorted). Mention imminent ex-dates and
+  notable yield-on-cost; a ticker absent here paid nothing in the last year.
 - `screen` (scan presets only): the broad-market candidate universe with
   momentum ranks.
 - `run_config`: preset, targets, regions.
