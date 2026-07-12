@@ -123,13 +123,22 @@ def save_portfolio(holdings: list[dict], file_path=None,
 
 
 def load_external_holdings(file_path=None) -> dict:
-    """Optional manual supplement for brokers without a live integration.
-    {} when absent."""
+    """Optional manual supplement for brokers without a live integration —
+    IPO/CDP allotments, placements, DRS shares. {} when absent."""
     file_path = file_path or EXTERNAL_HOLDINGS_FILE
     if not os.path.exists(file_path):
         return {}
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def save_external_holdings(holdings: dict, file_path=None) -> None:
+    """Write the external-holdings map ({ticker: {company, quantity,
+    cost_price, currency, broker}}) — the durable store that survives broker
+    syncs, unlike Portfolio.md which sync rebuilds."""
+    file_path = file_path or EXTERNAL_HOLDINGS_FILE
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(holdings, f, indent=2)
 
 
 def merge_holding(merged: dict, ticker: str, company: str, qty: float,

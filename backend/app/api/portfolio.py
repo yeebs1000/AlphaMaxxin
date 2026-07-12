@@ -17,6 +17,10 @@ class Holding(BaseModel):
     currency: str = "USD"
 
 
+class ExternalHolding(Holding):
+    broker: str = "External"
+
+
 def _quotes_for(registry, holdings: list[dict]) -> dict:
     quotes = {}
     for h in holdings:
@@ -46,6 +50,25 @@ def put_portfolio(holdings: list[Holding], registry=Depends(get_registry)):
     dicts = [h.model_dump() for h in holdings]
     pf.save_portfolio(dicts, quotes=_quotes_for(registry, dicts))
     return {"holdings": pf.parse_portfolio()}
+
+
+@router.get("/portfolio/external")
+def get_external():
+    """External holdings (IPO/CDP allotments, placements, other brokers) as a
+    list of rows for the editor."""
+    data = pf.load_external_holdings()
+    return {"holdings": [{"ticker": t, **v} for t, v in data.items()]}
+
+
+@router.put("/portfolio/external")
+def put_external(holdings: list[ExternalHolding]):
+    """Replace the external-holdings file. Keyed by ticker (a duplicate
+    ticker's last row wins); merged into the book on the next broker sync."""
+    data = {h.ticker.strip().upper(): {k: v for k, v in h.model_dump().items()
+                                       if k != "ticker"}
+            for h in holdings if h.ticker.strip()}
+    pf.save_external_holdings(data)
+    return {"holdings": [{"ticker": t, **v} for t, v in data.items()]}
 
 
 @router.post("/portfolio/sync")

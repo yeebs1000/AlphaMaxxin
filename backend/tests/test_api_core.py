@@ -20,6 +20,7 @@ def _bars(start, end, n=260):
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(pf, "PORTFOLIO_FILE", str(tmp_path / "Portfolio.md"))
+    monkeypatch.setattr(pf, "EXTERNAL_HOLDINGS_FILE", str(tmp_path / "external.json"))
     monkeypatch.setattr(wl, "WATCHLISTS_FILE", str(tmp_path / "watchlists.json"))
     app = create_app()
     yahoo = FakeYahoo(
@@ -65,6 +66,23 @@ def test_portfolio_put_then_get(client):
     got = client.get("/api/portfolio").json()["holdings"]
     assert got[0]["ticker"] == "MSFT"
     assert got[0]["cost_price"] == pytest.approx(385.985)
+
+
+def test_external_holdings_roundtrip(client):
+    rows = [{"company": "XYZ Holdings", "ticker": "xyz.si ", "quantity": 2000,
+             "cost_price": 0.88, "currency": "SGD", "broker": "CDP (IPO)"},
+            {"company": "", "ticker": "  ", "quantity": 1,
+             "cost_price": 1.0, "currency": "USD", "broker": "junk"}]  # blank ticker dropped
+    put = client.put("/api/portfolio/external", json=rows)
+    assert put.status_code == 200
+    got = client.get("/api/portfolio/external").json()["holdings"]
+    assert len(got) == 1
+    assert got[0]["ticker"] == "XYZ.SI"          # normalized upper, stripped
+    assert got[0]["broker"] == "CDP (IPO)"
+    assert got[0]["cost_price"] == pytest.approx(0.88)
+    # The file feeds sync_from_brokers' merge path (external source counts).
+    from app import portfolio as pf
+    assert "XYZ.SI" in pf.load_external_holdings()
 
 
 def test_portfolio_summary(client):
