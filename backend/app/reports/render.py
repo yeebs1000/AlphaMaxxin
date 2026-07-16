@@ -42,6 +42,12 @@ def _markdown_body_to_html(report_text: str) -> str:
     in_table = False
     pending_tag = None
     pending_text: list[str] = []
+    last_was_break = True  # collapse runs of blank lines into one break
+
+    # A cell that reads as a number/percent/price/ratio gets right-aligned —
+    # the single biggest readability win in printed tables.
+    numeric_cell = re.compile(
+        r"^[+\-−$€£]?\s*\$?\s*[\d,]+(\.\d+)?\s*(%|bps|x|d|pts?)?$|^—$|^-$")
 
     def flush_pending():
         nonlocal pending_tag, pending_text
@@ -56,19 +62,27 @@ def _markdown_body_to_html(report_text: str) -> str:
         stripped = line.strip()
         if stripped.startswith("|") and stripped.endswith("|"):
             flush_pending()
+            last_was_break = False
             cells = [c.strip().strip("*") for c in stripped.split("|")[1:-1]]
             if all(set(c) <= set("- :") for c in cells):
                 continue
             if not in_table:
-                html_lines.append("<table>")
+                # tablewrap gives horizontal scroll on narrow screens instead
+                # of blowing out the page width.
+                html_lines.append('<div class="tablewrap"><table>')
                 in_table = True
                 html_lines.append("<tr>" + "".join(f"<th>{c}</th>" for c in cells) + "</tr>")
             else:
-                html_lines.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+                tds = "".join(
+                    f'<td class="num">{c}</td>' if numeric_cell.match(c)
+                    else f"<td>{c}</td>" for c in cells)
+                html_lines.append(f"<tr>{tds}</tr>")
             continue
         if in_table:
-            html_lines.append("</table>")
+            html_lines.append("</table></div>")
             in_table = False
+        if stripped:
+            last_was_break = False
 
         if stripped.startswith("### "):
             flush_pending()
@@ -81,13 +95,17 @@ def _markdown_body_to_html(report_text: str) -> str:
             html_lines.append(f"<h1>{stripped[2:]}</h1>")
         elif stripped.startswith("────") or stripped == "---":
             flush_pending()
+            last_was_break = True  # swallowed rule shouldn't reopen <br> runs
         elif stripped.startswith("- ") or stripped.startswith("* "):
             flush_pending()
             pending_tag = "li"
             pending_text = [stripped[2:]]
         elif stripped == "":
             flush_pending()
-            html_lines.append("<br>")
+            if not last_was_break:  # one break, not one per blank line
+                html_lines.append("<br>")
+                last_was_break = True
+            continue
         else:
             num_match = re.match(r"^(\d+)\.\s+(.+)", stripped)
             if num_match:
@@ -107,7 +125,7 @@ def _markdown_body_to_html(report_text: str) -> str:
 
     flush_pending()
     if in_table:
-        html_lines.append("</table>")
+        html_lines.append("</table></div>")
     return "\n".join(html_lines)
 
 
@@ -170,18 +188,41 @@ def render_report_html(title: str, report_text: str) -> str:
   p, li {{ margin: 7px 0; color: var(--text); }}
   li {{ margin-left: 24px; }}
   strong {{ color: var(--text); }}
-  table {{ border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.9rem;
-          background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-          overflow: hidden; }}
+  .tablewrap {{ overflow-x: auto; margin: 16px 0; border: 1px solid var(--border);
+               border-radius: 8px; background: var(--panel); }}
+  table {{ border-collapse: collapse; width: 100%; font-size: 0.9rem; }}
   th {{ background: var(--panel-2); color: var(--text); text-align: left;
        text-transform: uppercase; font-size: 0.72rem; letter-spacing: .3px;
        font-weight: 700; }}
   th, td {{ border-bottom: 1px solid var(--border); padding: 9px 12px; }}
+  td.num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+  tr:nth-child(even) td {{ background: rgba(30,28,20,.025); }}
   tr:last-child td {{ border-bottom: none; }}
   .footnote {{ color: var(--muted); font-size: 0.82rem; }}
   .disclaimer {{ margin-top: 40px; padding: 14px 18px; background: var(--brand-bg);
                 border-left: 3px solid var(--brand); border-radius: 6px;
                 font-size: 0.8rem; color: var(--muted); }}
+
+  /* Exported PDFs come from the browser's print dialog — make that path a
+     first-class output: clean page breaks, no wasted ink, readable margins. */
+  @media print {{
+    @page {{ margin: 18mm 15mm; }}
+    body {{ background: #fff; font-size: 11pt; line-height: 1.5; }}
+    .header {{ padding: 0 0 12px; border-bottom: 2.5pt solid var(--brand);
+              background: #fff; }}
+    .content {{ max-width: none; padding: 18px 0 0; }}
+    .content h1, .content h2 {{ break-after: avoid; page-break-after: avoid; }}
+    .content h3 {{ break-after: avoid; page-break-after: avoid; }}
+    .tablewrap, table {{ break-inside: avoid; page-break-inside: avoid;
+                        overflow: visible; }}
+    tr:nth-child(even) td {{ background: #f4f3ee !important;
+                            -webkit-print-color-adjust: exact;
+                            print-color-adjust: exact; }}
+    th {{ background: #eceade !important; -webkit-print-color-adjust: exact;
+         print-color-adjust: exact; }}
+    .disclaimer {{ break-inside: avoid; page-break-inside: avoid; }}
+    .logo {{ border: none; }}
+  }}
 </style>
 </head>
 <body>

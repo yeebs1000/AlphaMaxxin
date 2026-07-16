@@ -263,12 +263,19 @@ def test_store_delete(tmp_path):
 
 
 def test_render_tables_and_headers():
-    md = "# Title\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- Point one\nScore: 42"
+    md = ("# Title\n\n| A | B |\n| --- | --- |\n| 1.5 | text |\n| -2% | $30 |\n"
+          "\n\n\n- Point one\nScore: 42")
     html = render_report_html("T — MSFT", md)
-    assert "<table>" in html and "<th>A</th>" in html and "<td>1</td>" in html
+    assert '<div class="tablewrap"><table>' in html and "<th>A</th>" in html
+    # Numeric-looking cells right-align; prose cells don't.
+    assert '<td class="num">1.5</td>' in html
+    assert '<td class="num">-2%</td>' in html and '<td class="num">$30</td>' in html
+    assert "<td>text</td>" in html
     assert "<h1>Title</h1>" in html
     assert "<strong>Score:</strong>" in html
     assert "not financial advice" in html
+    assert "@media print" in html
+    assert html.count("<br>\n<br>") == 0          # blank-line runs collapsed
     assert "Georgia" in html                    # serif headline font stack
     assert '<img class="logo"' in html           # single-ticker gets a logo
 
