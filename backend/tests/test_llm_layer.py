@@ -32,12 +32,27 @@ async def test_call_llm_no_key_reports_reason_not_silent_empty(monkeypatch):
     assert "No LLM API key configured" in result["error"]
 
 
-def test_model_id_map_and_semaphores():
-    assert router.MODEL_ID_MAP["Claude 4.6 Sonnet"] == "claude-sonnet-4-6"
+def test_semaphores():
     assert router.semaphore_for_model("claude-sonnet-4-6") is \
         router.semaphore_for_model("claude-opus-4-8")
     assert router.semaphore_for_model("gemini-3.5-flash") is not \
         router.semaphore_for_model("claude-sonnet-4-6")
+
+
+def test_provider_routing_by_model_name():
+    p = router._provider_for
+    assert p("claude-sonnet-4-6", True, True, True) == "anthropic"
+    assert p("claude-sonnet-4-6", False, True, True) == "anthropic"  # branch reports missing key
+    # gpt models must reach OpenAI even when a Gemini key exists (was broken).
+    assert p("gpt-4o-mini", False, True, True) == "openai"
+    assert p("gpt-4o-mini", False, True, False) is None  # never sent to Gemini
+    assert p("o3-mini", False, True, True) == "openai"
+    assert p("gemini-3.5-flash", False, True, True) == "gemini"
+    assert p("gemini-3.5-flash", False, False, True) is None
+    # Unknown model id falls back to whatever is configured.
+    assert p("mystery-model", False, True, False) == "gemini"
+    assert p("mystery-model", False, False, True) == "openai"
+    assert p("mystery-model", False, False, False) is None
 
 
 # ---------------------------------------------------------------------------

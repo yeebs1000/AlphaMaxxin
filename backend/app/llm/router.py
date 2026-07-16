@@ -11,15 +11,30 @@ from ..data.base import guard_online
 
 DEFAULT_MODEL = "gemini-3.5-flash"
 
-# Friendly name → API model id (carried over from gui.py's MODEL_ID_MAP).
-MODEL_ID_MAP = {
-    "Gemini 2.5 Flash": "gemini-2.5-flash",
-    "Gemini 3.0 Flash": "gemini-3-flash-preview",
-    "Gemini 3.5 Flash": "gemini-3.5-flash",
-    "Claude 3.5 Sonnet": "claude-3-5-sonnet-latest",
-    "Claude 4.6 Sonnet": "claude-sonnet-4-6",
-    "Claude 4.8 Opus": "claude-opus-4-8",
-}
+# Hard ceiling on any single provider call. Without one, a stalled request
+# (e.g. a 503 storm) hangs forever — a scheduled watcher run once sat stuck
+# for an hour+ blocking every subsequent 15-minute cycle.
+REQUEST_TIMEOUT_S = 120.0
+
+
+def _provider_for(model: str, has_anthropic: bool, has_gemini: bool,
+                  has_openai: bool) -> str | None:
+    """Route by MODEL NAME first, key presence second. (Key-presence-only
+    routing sent gpt-* ids to the Gemini client whenever a Gemini key
+    existed, making OpenAI unreachable.)"""
+    m = (model or "").lower()
+    if "claude" in m:
+        return "anthropic"
+    if "gpt" in m or m.startswith("o1") or m.startswith("o3"):
+        return "openai" if has_openai else None
+    if "gemini" in m:
+        return "gemini" if has_gemini else None
+    # Unknown model id — fall back to whichever provider is configured.
+    if has_gemini:
+        return "gemini"
+    if has_openai:
+        return "openai"
+    return None
 
 _PROVIDER_CONCURRENCY = {"claude": 4, "gemini": 12, "openai": 8}
 _DEFAULT_CONCURRENCY = 6
@@ -53,54 +68,57 @@ async def call_llm(system_prompt: str, user_prompt: str,
     gemini_key = os.environ.get("GEMINI_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
 
-    if "claude" in model.lower():
-        if not anthropic_key:
-            return _result("", model, error="no ANTHROPIC_API_KEY set in .env")
-        from anthropic import AsyncAnthropic
-        client = AsyncAnthropic(api_key=anthropic_key)
-        # One retry on transient 429/529 rather than dropping the analyst.
-        for attempt in range(2):
-            try:
-                response = await client.messages.create(
+    provider = _provider_for(model, bool(anthropic_key), bool(gemini_key),
+                             bool(openai_key))
+
+    try:
+        if provider == "anthropic":
+            if not anthropic_key:
+                return _result("", model, error="no ANTHROPIC_API_KEY set in .env")
+            from anthropic import AsyncAnthropic
+            # SDK handles transient 429/5xx retries; timeout bounds each attempt.
+            client = AsyncAnthropic(api_key=anthropic_key,
+                                    timeout=REQUEST_TIMEOUT_S, max_retries=2)
+            response = await asyncio.wait_for(
+                client.messages.create(
                     model=model,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                     max_tokens=8192,
                     temperature=0.2,
-                )
-                if response and response.content:
-                    text = "".join(b.text for b in response.content
-                                   if b.type == "text").strip()
-                    usage = getattr(response, "usage", None)
-                    return _result(text, model,
-                                   getattr(usage, "input_tokens", 0),
-                                   getattr(usage, "output_tokens", 0),
-                                   error=None if text else "Claude returned an empty response")
-                return _result("", model, error="Claude returned no content")
-            except Exception as e:
-                status = getattr(e, "status_code", None)
-                if attempt == 0 and status in (429, 529):
-                    await asyncio.sleep(2.0)
-                    continue
-                print(f"Claude API call failed: {e}.", file=sys.stderr)
-                return _result("", model, error=f"Claude API call failed: {e}")
-        return _result("", model, error="Claude API call failed after retry")
+                ),
+                timeout=REQUEST_TIMEOUT_S * 3)  # belt over the SDK's retries
+            if response and response.content:
+                text = "".join(b.text for b in response.content
+                               if b.type == "text").strip()
+                usage = getattr(response, "usage", None)
+                return _result(text, model,
+                               getattr(usage, "input_tokens", 0),
+                               getattr(usage, "output_tokens", 0),
+                               error=None if text else "Claude returned an empty response")
+            return _result("", model, error="Claude returned no content")
 
-    if gemini_key:
-        try:
+        if provider == "gemini":
             import google.genai as genai
             from google.genai import types
-            client = genai.Client(api_key=gemini_key)
-            # Sync client — run in a thread so concurrent analysts don't serialize.
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.2,
+            try:  # http_options timeout is in ms; tolerate older SDKs
+                client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(
+                    timeout=int(REQUEST_TIMEOUT_S * 1000)))
+            except TypeError:
+                client = genai.Client(api_key=gemini_key)
+            # Sync client — thread keeps concurrent analysts parallel; wait_for
+            # guarantees the caller never hangs even if the SDK stalls.
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model,
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0.2,
+                    ),
                 ),
-            )
+                timeout=REQUEST_TIMEOUT_S)
             if response and response.text:
                 meta = getattr(response, "usage_metadata", None)
                 return _result(response.text.strip(), model,
@@ -108,24 +126,24 @@ async def call_llm(system_prompt: str, user_prompt: str,
                                getattr(meta, "candidates_token_count", 0) or 0)
             return _result("", model, error="Gemini returned an empty response "
                            f"(model '{model}' — check it's a valid, available model id)")
-        except Exception as e:
-            print(f"Gemini API call failed: {e}.", file=sys.stderr)
-            return _result("", model, error=f"Gemini API call failed: {e}")
 
-    if openai_key:
-        try:
+        if provider == "openai":
             from openai import OpenAI
-            client = OpenAI(api_key=openai_key)
-            openai_model = model if "gpt" in model else "gpt-4o-mini"
-            response = await asyncio.to_thread(
-                client.chat.completions.create,
-                model=openai_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.2,
-            )
+            client = OpenAI(api_key=openai_key,
+                            timeout=REQUEST_TIMEOUT_S, max_retries=1)
+            openai_model = model if ("gpt" in model or model.startswith("o")) \
+                else "gpt-4o-mini"
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.chat.completions.create,
+                    model=openai_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.2,
+                ),
+                timeout=REQUEST_TIMEOUT_S * 2)
             if response and response.choices:
                 usage = getattr(response, "usage", None)
                 return _result(response.choices[0].message.content.strip(),
@@ -133,9 +151,14 @@ async def call_llm(system_prompt: str, user_prompt: str,
                                getattr(usage, "prompt_tokens", 0) or 0,
                                getattr(usage, "completion_tokens", 0) or 0)
             return _result("", openai_model, error="OpenAI returned no choices")
-        except Exception as e:
-            print(f"OpenAI API call failed: {e}.", file=sys.stderr)
-            return _result("", model, error=f"OpenAI API call failed: {e}")
 
-    return _result("", model, error="No LLM API key configured "
+    except asyncio.TimeoutError:
+        print(f"LLM call timed out after {REQUEST_TIMEOUT_S:.0f}s "
+              f"({provider}/{model}).", file=sys.stderr)
+        return _result("", model, error=f"{provider} call timed out")
+    except Exception as e:
+        print(f"{provider} API call failed: {e}.", file=sys.stderr)
+        return _result("", model, error=f"{provider} API call failed: {e}")
+
+    return _result("", model, error="No LLM API key configured for this model "
                    "(set ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in .env)")
