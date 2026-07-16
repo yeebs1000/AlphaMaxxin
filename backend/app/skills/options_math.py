@@ -52,10 +52,13 @@ def put_call_parity_gap(call: float, put: float, S: float, K: float,
     return call - put - (S - K * math.exp(-r * T))
 
 
-def chain_summary(chain: dict, r: float = 0.045) -> dict | None:
+def chain_summary(chain: dict, r: float = 0.045,
+                  realized_vol_ann: float | None = None) -> dict | None:
     """Compact per-ticker options view for the analyst from a provider chain
-    ({"expiry","spot","calls","puts"}): ATM IV, straddle-implied move, and
-    highest-OI strikes."""
+    ({"expiry","spot","calls","puts"}): ATM IV, straddle-implied move,
+    highest-OI strikes, positioning ratios, and — when annualized realized
+    vol is supplied — the IV−HV spread (positive = options priced rich vs
+    recent realized movement, the classic seller's edge; negative = cheap)."""
     if not chain or not chain.get("spot"):
         return None
     spot = chain["spot"]
@@ -86,6 +89,10 @@ def chain_summary(chain: dict, r: float = 0.045) -> dict | None:
         "max_oi_put_strike": top_oi_put["strike"] if top_oi_put else None,
         "put_call_oi_ratio": round(put_oi / call_oi, 3) if call_oi else None,
         "max_pain_strike": max_pain(calls, puts),
+        "realized_vol_ann": round(realized_vol_ann, 4)
+                            if realized_vol_ann is not None else None,
+        "iv_hv_spread": round(atm_iv - realized_vol_ann, 4)
+                        if atm_iv and realized_vol_ann is not None else None,
     }
 
 

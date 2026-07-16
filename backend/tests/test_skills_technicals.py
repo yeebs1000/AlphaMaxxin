@@ -113,6 +113,10 @@ def test_chain_summary():
     assert s["max_oi_call_strike"] == 100
     assert s["max_oi_put_strike"] == 100
     assert s["put_call_oi_ratio"] == pytest.approx(820 / 550, abs=0.001)
+    assert s["iv_hv_spread"] is None                      # no HV supplied
+    rich = options_math.chain_summary(chain, realized_vol_ann=0.22)
+    assert rich["iv_hv_spread"] == pytest.approx(0.31 - 0.22)
+    assert rich["realized_vol_ann"] == 0.22
     assert options_math.chain_summary(None) is None
 
 

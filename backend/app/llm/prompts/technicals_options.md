@@ -32,9 +32,12 @@ A JSON envelope containing:
   them, don't recompute or invent verdicts.
 - `options` (US tickers, when available): nearest-expiry chain summary —
   ATM IV, straddle-implied move, max-OI strikes, `put_call_oi_ratio`
-  (>1 = put-heavy positioning; extremes are contrarian tells), and
+  (>1 = put-heavy positioning; extremes are contrarian tells),
   `max_pain_strike` (the writers' pin level — a positioning magnet near
-  expiry, not a forecast; frame it that way).
+  expiry, not a forecast; frame it that way), and `iv_hv_spread` (ATM IV
+  minus 20d annualized realized vol: clearly positive = options priced rich
+  vs actual movement — premium-selling structures favored; clearly negative
+  = cheap optionality. Near zero is a non-signal).
 - `screen` (scan presets): candidate universe with momentum ranks.
 - `run_config`.
 

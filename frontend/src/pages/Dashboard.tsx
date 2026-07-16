@@ -4,8 +4,17 @@ export default function Dashboard() {
   const summary = useApi<any>("/portfolio/summary");
   const guidance = useApi<any>("/portfolio/guidance");
   const status = useApi<any>("/status");
+  const ledger = useApi<any>("/ledger");
+  const equity = useApi<any>("/portfolio/equity");
 
   const s = summary.data;
+  const conv = ledger.data?.summary?.by_conviction ?? {};
+  const calib = Object.entries(conv)
+    .filter(([, v]: any) => v.resolved > 0 && v.hit_rate !== null)
+    .map(([k, v]: any) => `${k} ${Math.round(v.hit_rate * 100)}% (${v.resolved})`);
+  const openCalls = ledger.data?.summary?.open ?? 0;
+  const em = equity.data?.metrics;
+  const nSnaps = equity.data?.recent?.length ?? 0;
   return (
     <>
       <h2>Dashboard</h2>
@@ -33,6 +42,24 @@ export default function Dashboard() {
           <div className="value">{s?.benchmark?.price?.toLocaleString() ?? "—"}</div>
           <div className={`muted ${(s?.benchmark?.change_pct ?? 0) >= 0 ? "pos" : "neg"}`}>
             {fmtPct(s?.benchmark?.change_pct, 2)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="label">Book TWR</div>
+          <div className={`value ${(em?.twr_pct ?? 0) >= 0 ? "pos" : "neg"}`}>
+            {em ? fmtPct(em.twr_pct) : "—"}
+          </div>
+          <div className="muted">
+            {em ? `max DD ${fmtPct(em.max_drawdown_pct)} · Sharpe ${em.sharpe_ann ?? "—"}`
+                : `${nSnaps}/5 snapshots — builds daily`}
+          </div>
+        </div>
+        <div className="card">
+          <div className="label">Call Calibration</div>
+          <div className="value">{calib.length ? calib[0] : "—"}</div>
+          <div className="muted">
+            {calib.length > 1 ? calib.slice(1).join(" · ")
+              : `${openCalls} open call${openCalls === 1 ? "" : "s"} tracking`}
           </div>
         </div>
       </div>

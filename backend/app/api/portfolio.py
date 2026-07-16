@@ -91,6 +91,15 @@ def portfolio_summary(registry=Depends(get_registry)):
         benchmark_quote=benchmark)
 
 
+@router.get("/portfolio/equity")
+def portfolio_equity():
+    """The book's own snapshot series and derived performance (deposit-
+    adjusted TWR, drawdown, Sharpe/Sortino) — None until ≥5 snapshots."""
+    from .. import equity_history
+    return {"metrics": equity_history.metrics(),
+            "recent": equity_history._load()[-30:]}
+
+
 @router.get("/portfolio/guidance")
 def portfolio_guidance(registry=Depends(get_registry)):
     holdings = pf.parse_portfolio()

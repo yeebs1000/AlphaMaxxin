@@ -7,6 +7,8 @@ reported as such."""
 import asyncio
 import datetime
 
+import numpy as np
+
 from .. import equity_history
 from .. import portfolio as pf
 from .. import watchlists as wl
@@ -240,9 +242,14 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
     if "options_math" in wanted and registry.yfinance.available:
         emit("skills", "Summarizing option chains", 68)
         out["options"] = {}
+        returns_by_ticker = _returns_from_daily(fetched["daily"])
         for t in tickers:
             chain = registry.yfinance.option_chain(fetched["symbols"].get(t, t))
-            summary = options_math.chain_summary(chain) if chain else None
+            rets = returns_by_ticker.get(t)
+            hv_ann = (float(np.std(rets[-20:], ddof=1)) * float(np.sqrt(252))
+                      if rets and len(rets) >= 21 else None)
+            summary = options_math.chain_summary(chain, realized_vol_ann=hv_ann) \
+                if chain else None
             if summary:
                 out["options"][t] = summary
 
