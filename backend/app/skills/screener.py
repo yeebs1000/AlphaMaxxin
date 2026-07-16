@@ -33,14 +33,6 @@ CANDIDATE_LISTS = {
     "JP": JP_CANDIDATES, "KR": KR_CANDIDATES,
 }
 
-REGION_LABELS = {
-    "US": "United States (non-mega-cap, trailing 12-month return <= +100%)",
-    "SG": "Singapore Exchange (SGX)",
-    "HK": "Hong Kong Exchange (HKEX)",
-    "JP": "Japan — Tokyo Stock Exchange",
-    "KR": "South Korea — KOSPI/KOSDAQ",
-}
-
 _MAX_YOY_PCT_US = 100.0  # exclude US names that already ran >100% YoY
 _MAX_PER_MARKET = 6
 

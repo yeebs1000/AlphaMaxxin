@@ -60,6 +60,23 @@ def to_number(value: Any) -> float | None:
     return num
 
 
+def relative_time(epoch: float) -> str:
+    """'2h ago'-style age for a unix timestamp — shared by news providers."""
+    import datetime
+    try:
+        then = datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)
+        diff = int((datetime.datetime.now(tz=datetime.timezone.utc) - then).total_seconds())
+        if diff < 60:
+            return "just now"
+        if diff < 3600:
+            return f"{diff // 60}m ago"
+        if diff < 86400:
+            return f"{diff // 3600}h ago"
+        return f"{diff // 86400}d ago"
+    except Exception:
+        return "recently"
+
+
 _DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 

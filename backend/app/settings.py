@@ -1,5 +1,6 @@
 """User settings — per-role model routing, persisted in data_store/
 settings.json (gitignored). Never holds API keys; those stay in .env."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -25,14 +26,13 @@ DEFAULT_SETTINGS = {
 
 def load_settings(file_path=None) -> dict:
     file_path = file_path or SETTINGS_FILE
-    settings = json.loads(json.dumps(DEFAULT_SETTINGS))  # deep copy
+    settings = copy.deepcopy(DEFAULT_SETTINGS)
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             stored = json.load(f)
         settings["models"].update(stored.get("models", {}))
-        for key in ("llm_cache_enabled",):
-            if key in stored:
-                settings[key] = stored[key]
+        if "llm_cache_enabled" in stored:
+            settings["llm_cache_enabled"] = stored["llm_cache_enabled"]
     except (OSError, ValueError):
         pass
     return settings
@@ -42,9 +42,8 @@ def save_settings(settings: dict, file_path=None) -> dict:
     file_path = file_path or SETTINGS_FILE
     merged = load_settings(file_path)
     merged["models"].update(settings.get("models", {}))
-    for key in ("llm_cache_enabled",):
-        if key in settings:
-            merged[key] = settings[key]
+    if "llm_cache_enabled" in settings:
+        merged["llm_cache_enabled"] = settings["llm_cache_enabled"]
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(merged, f, indent=2)

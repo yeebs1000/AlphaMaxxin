@@ -9,25 +9,11 @@ import os
 
 from .base import (
     DiskTTLCache, RateLimiter, guard_online, http_get_json,
+    relative_time as _relative_time,
     TTL_NEWS, TTL_FUNDAMENTALS, TTL_CALENDAR,
 )
 
 _BASE = "https://finnhub.io/api/v1"
-
-
-def _relative_time(epoch: float) -> str:
-    try:
-        then = datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)
-        diff = int((datetime.datetime.now(tz=datetime.timezone.utc) - then).total_seconds())
-        if diff < 60:
-            return "just now"
-        if diff < 3600:
-            return f"{diff // 60}m ago"
-        if diff < 86400:
-            return f"{diff // 3600}h ago"
-        return f"{diff // 86400}d ago"
-    except Exception:
-        return "recently"
 
 
 class FinnhubProvider:
