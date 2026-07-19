@@ -53,6 +53,12 @@ def test_provider_routing_by_model_name():
     assert p("mystery-model", False, True, False) == "gemini"
     assert p("mystery-model", False, False, True) == "openai"
     assert p("mystery-model", False, False, False) is None
+    # Local models route to the OpenAI-compatible endpoint when configured.
+    assert p("local/qwen3:14b", True, True, True, has_local=True) == "local"
+    assert p("ollama/llama3.3", False, False, False, has_local=True) == "local"
+    assert p("local/qwen3:14b", True, True, True, has_local=False) is None
+    # With ONLY a local endpoint, unknown ids fall back to it.
+    assert p("mystery-model", False, False, False, has_local=True) == "local"
 
 
 # ---------------------------------------------------------------------------

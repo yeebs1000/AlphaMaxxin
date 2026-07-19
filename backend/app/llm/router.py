@@ -18,11 +18,17 @@ REQUEST_TIMEOUT_S = 120.0
 
 
 def _provider_for(model: str, has_anthropic: bool, has_gemini: bool,
-                  has_openai: bool) -> str | None:
+                  has_openai: bool, has_local: bool = False) -> str | None:
     """Route by MODEL NAME first, key presence second. (Key-presence-only
     routing sent gpt-* ids to the Gemini client whenever a Gemini key
-    existed, making OpenAI unreachable.)"""
+    existed, making OpenAI unreachable.)
+
+    "local/<model>" or "ollama/<model>" ids route to the OpenAI-compatible
+    endpoint named by LOCAL_LLM_BASE_URL (Ollama, LM Studio, llama.cpp
+    server, vLLM — all speak that protocol)."""
     m = (model or "").lower()
+    if m.startswith(("local/", "ollama/")):
+        return "local" if has_local else None
     if "claude" in m:
         return "anthropic"
     if "gpt" in m or m.startswith("o1") or m.startswith("o3"):
@@ -34,6 +40,8 @@ def _provider_for(model: str, has_anthropic: bool, has_gemini: bool,
         return "gemini"
     if has_openai:
         return "openai"
+    if has_local:
+        return "local"
     return None
 
 _PROVIDER_CONCURRENCY = {"claude": 4, "gemini": 12, "openai": 8}
@@ -67,11 +75,41 @@ async def call_llm(system_prompt: str, user_prompt: str,
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
+    local_base_url = os.environ.get("LOCAL_LLM_BASE_URL", "").strip()
 
     provider = _provider_for(model, bool(anthropic_key), bool(gemini_key),
-                             bool(openai_key))
+                             bool(openai_key), bool(local_base_url))
 
     try:
+        if provider == "local":
+            # Any OpenAI-compatible local server: Ollama (http://127.0.0.1:11434/v1),
+            # LM Studio (:1234/v1), llama.cpp server, vLLM. Free — the cost
+            # meter prices these at $0. Longer timeout: local inference on
+            # consumer hardware is slower than cloud.
+            from openai import OpenAI
+            client = OpenAI(base_url=local_base_url,
+                            api_key=os.environ.get("LOCAL_LLM_API_KEY", "local"),
+                            timeout=REQUEST_TIMEOUT_S * 3, max_retries=0)
+            local_model = model.split("/", 1)[1] if "/" in model else model
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.chat.completions.create,
+                    model=local_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.2,
+                ),
+                timeout=REQUEST_TIMEOUT_S * 3)
+            if response and response.choices:
+                usage = getattr(response, "usage", None)
+                return _result(response.choices[0].message.content.strip(),
+                               model,
+                               getattr(usage, "prompt_tokens", 0) or 0,
+                               getattr(usage, "completion_tokens", 0) or 0)
+            return _result("", model, error="local LLM returned no choices")
+
         if provider == "anthropic":
             if not anthropic_key:
                 return _result("", model, error="no ANTHROPIC_API_KEY set in .env")

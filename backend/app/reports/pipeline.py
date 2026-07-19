@@ -58,14 +58,22 @@ _SCAN_REGION_WEIGHTS = {"US": 6, "SG": 5, "HK": 5, "JP": 2, "KR": 2}
 _SCAN_SINGLE_REGION = 6
 
 
-def _scan_candidates(registry, preset: dict) -> tuple[list[dict], dict]:
+def _scan_candidates(registry, preset: dict,
+                     settings: dict | None = None) -> tuple[list[dict], dict]:
     """Market-scan presets that screen exist to surface NEW setups, not to
     re-analyze the user's book — so their analysis universe IS the top screened
     candidates, not the resolved target. Broad (multi-region) scans apply the
     region weights so US/SG/HK dominate; single-region presets take a full
     slate. Returns (candidate_holdings, screen). Empty holdings (screener
-    returned nothing) means the caller keeps the original target as a fallback."""
-    regions = preset.get("regions") or list(_SCAN_REGION_WEIGHTS)
+    returned nothing) means the caller keeps the original target as a fallback.
+
+    Broad scans honor the user's scan_markets toggles (dashboard-settable);
+    region-scoped presets (Dragon Watch…) are explicit choices and ignore them."""
+    regions = preset.get("regions")
+    if not regions:
+        toggles = (settings or {}).get("scan_markets") or {}
+        regions = [r for r in _SCAN_REGION_WEIGHTS
+                   if toggles.get(r, True)] or list(_SCAN_REGION_WEIGHTS)
     single = len(regions) == 1
     screen, holdings = {}, []
     for region in regions:
@@ -376,7 +384,7 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     if preset.get("market_scan") and "screener" in preset["skills"]:
         emit("fetch", "Screening the market for candidates", 6)
         scan_holdings, prescreened = await asyncio.to_thread(
-            _scan_candidates, registry, preset)
+            _scan_candidates, registry, preset, settings)
         if scan_holdings:
             holdings = scan_holdings
             target_label = f"Market scan — {preset['name']}"

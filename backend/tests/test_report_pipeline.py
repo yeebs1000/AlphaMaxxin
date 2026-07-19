@@ -178,6 +178,21 @@ def test_scan_region_weighting_favours_us_sg_hk():
     assert us_sg_hk > counts["JP"] + counts["KR"]            # majority
     assert len(holdings) == 20
 
+    # Market toggles narrow a broad scan; region presets ignore them.
+    toggled = {"scan_markets": {"JP": False, "KR": False, "HK": False}}
+    _, screen2 = _scan_candidates(make_registry(yahoo=_AllBars()),
+                                  get_preset("Opportunist"), settings=toggled)
+    assert set(screen2) == {"US", "SG"}
+    _, screen3 = _scan_candidates(make_registry(yahoo=_AllBars()),
+                                  get_preset("Dragon Watch"),
+                                  settings={"scan_markets": {"HK": False}})
+    assert set(screen3) == {"HK"}                            # explicit preset wins
+    # All toggled off → falls back to everything rather than an empty scan.
+    _, screen4 = _scan_candidates(
+        make_registry(yahoo=_AllBars()), get_preset("Opportunist"),
+        settings={"scan_markets": {r: False for r in ("US", "SG", "HK", "JP", "KR")}})
+    assert len(screen4) == 5
+
 
 async def test_synthesis_failure_falls_back_to_analyst_narratives(tmp_path, portfolio_target):
     """A failed synthesis call must never produce a blank report — the

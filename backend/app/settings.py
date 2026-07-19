@@ -21,6 +21,9 @@ DEFAULT_SETTINGS = {
         "synthesis": "claude-sonnet-4-6",  # the one call worth the better tier
     },
     "llm_cache_enabled": True,
+    # Which markets broad scans (Opportunist etc.) cover — the dashboard
+    # toggles write here. Region-scoped presets (Dragon Watch…) ignore this.
+    "scan_markets": {"US": True, "SG": True, "HK": True, "JP": True, "KR": True},
 }
 
 
@@ -31,6 +34,7 @@ def load_settings(file_path=None) -> dict:
         with open(file_path, "r", encoding="utf-8") as f:
             stored = json.load(f)
         settings["models"].update(stored.get("models", {}))
+        settings["scan_markets"].update(stored.get("scan_markets", {}))
         if "llm_cache_enabled" in stored:
             settings["llm_cache_enabled"] = stored["llm_cache_enabled"]
     except (OSError, ValueError):
@@ -42,6 +46,7 @@ def save_settings(settings: dict, file_path=None) -> dict:
     file_path = file_path or SETTINGS_FILE
     merged = load_settings(file_path)
     merged["models"].update(settings.get("models", {}))
+    merged["scan_markets"].update(settings.get("scan_markets", {}))
     if "llm_cache_enabled" in settings:
         merged["llm_cache_enabled"] = settings["llm_cache_enabled"]
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
