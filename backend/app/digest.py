@@ -128,7 +128,8 @@ def run_digest(presets=_DIGEST_PRESETS, sender=None) -> str | None:
     message = build_message(reports, ledger_summary=ledger_summary)
     # Send first — a console/log encoding hiccup must never swallow delivery.
     if sender is None:
-        from .notify.telegram import send_message as sender
+        from .notify.telegram import send_message
+        sender = lambda m: send_message(m, topic="portfolio")
     sender(message)
     # Then log it, encoding-safe: Windows' cp1252 stdout can't encode the emoji
     # in the message, which would otherwise raise UnicodeEncodeError.

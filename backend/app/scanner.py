@@ -220,7 +220,7 @@ def run_cycle(now: datetime.datetime | None = None) -> dict:
                 lines.append(f"↳ read failed ({e}) — alert stands")
         else:
             lines.append("↳ cloud budget reached — deterministic alert only")
-        send_message("\n".join(lines))
+        send_message("\n".join(lines), topic="opportunist")
         alerts_sent += len(top)
         # Feed the dashboard: newest first, capped.
         latest = state.get("latest", [])
