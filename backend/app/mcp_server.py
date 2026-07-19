@@ -36,7 +36,7 @@ def _registry():
 def get_portfolio() -> dict:
     """Current holdings with live valuation: per-position value/weight/P&L in
     USD, day change, totals. Reads Portfolio.md (kept in sync from the
-    brokers by the daily digest)."""
+    brokers via the app's ⇄ Sync Brokers action)."""
     from . import portfolio as pf
     from .data.live_quote import live_quote
     from .skills import performance
@@ -121,7 +121,7 @@ def get_backtest_results() -> dict:
 def get_equity_history() -> dict:
     """The book's own daily value snapshots and derived performance
     (deposit-adjusted TWR, max drawdown, Sharpe/Sortino). Needs ≥5 snapshots;
-    the weekday digest records one per day."""
+    each portfolio-targeted report run records one."""
     from . import equity_history
     m = equity_history.metrics()
     rows = equity_history._load()

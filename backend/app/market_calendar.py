@@ -64,7 +64,8 @@ def status_of_ticker(ticker: str, now: datetime | None = None) -> dict:
 
 
 def is_trading_day(market: str = "US", now: datetime | None = None) -> bool:
-    """Weekday in the market's timezone — the digest's non-trading-day guard.
+    """Weekday in the market's timezone — a non-trading-day guard for
+    scheduled report runs.
     # ponytail: weekend check only; add holiday tables if it fires on holidays."""
     tzname = _MARKETS.get(market, _MARKETS["US"])[0]
     now = now.astimezone(ZoneInfo(tzname)) if (now and now.tzinfo) else datetime.now(ZoneInfo(tzname))

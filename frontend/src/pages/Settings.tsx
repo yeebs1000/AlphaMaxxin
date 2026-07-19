@@ -3,6 +3,7 @@ import { api, useApi, fmtUsd } from "../api";
 
 const MODELS = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3.5-flash",
                 "claude-3-5-sonnet-latest", "claude-sonnet-4-6", "claude-opus-4-8"];
+const MARKETS = ["US", "SG", "HK", "JP", "KR"] as const;
 const ROLE_LABELS: Record<string, string> = {
   macro: "Macro Analyst", fundamentals: "Fundamentals Analyst",
   technicals_options: "Technicals & Options Analyst",
@@ -16,20 +17,24 @@ export default function Settings() {
   const costs = useApi<any>("/costs");
   const [models, setModels] = useState<Record<string, string>>({});
   const [cacheOn, setCacheOn] = useState(true);
+  const [markets, setMarkets] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     if (settings.data) {
       setModels(settings.data.models);
       setCacheOn(settings.data.llm_cache_enabled);
+      setMarkets(settings.data.scan_markets ?? {});
     }
   }, [settings.data]);
 
   const save = async () => {
     await api("/settings", { method: "PUT",
-      body: JSON.stringify({ models, llm_cache_enabled: cacheOn }) });
+      body: JSON.stringify({ models, llm_cache_enabled: cacheOn, scan_markets: markets }) });
     setMsg("Saved.");
   };
+
+  const toggleMarket = (m: string) => setMarkets({ ...markets, [m]: !markets[m] });
 
   return (
     <>
@@ -50,6 +55,25 @@ export default function Settings() {
           <label><input type="checkbox" checked={cacheOn}
                         onChange={(e) => setCacheOn(e.target.checked)} /> LLM response cache
             <span className="muted"> (identical re-runs within 24h are free)</span></label>
+        </div>
+        <div className="row">
+          <button className="btn" onClick={save}>Save</button>
+          <span className="muted">{msg}</span>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h3>Market scan scope</h3>
+        <p className="muted">Broad-scan presets (Opportunist, Macro Pulse, region runs) only
+          screen toggled-on markets.</p>
+        <div className="row">
+          {MARKETS.map((m) => (
+            <button key={m} className={`tag mkt ${markets[m] ?? true ? "buy" : "off"}`}
+                    aria-pressed={markets[m] ?? true}
+                    onClick={() => toggleMarket(m)}>
+              {(markets[m] ?? true) ? "●" : "○"} {m}
+            </button>
+          ))}
         </div>
         <div className="row">
           <button className="btn" onClick={save}>Save</button>

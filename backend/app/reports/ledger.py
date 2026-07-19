@@ -6,8 +6,8 @@ One JSON file (data_store/ledger.json) holds two things:
 - entries: one per actionable recommendation (buy/accumulate/sell/reduce),
   joined with that ticker's recommendation_block for price/stop/target.
 - levels: latest computed {price_at_rec, bear_stop, base_target} per ticker —
-  the watcher's O(1) lookup for "what levels does the latest analysis give
-  this holding" (the report index has no per-ticker view).
+  an O(1) lookup for "what levels does the latest analysis give this
+  holding" (the report index has no per-ticker view).
 
 Scoring is close-basis and buys-only for hit rate: intraday touches aren't
 visible to cached quotes, and sell/reduce calls just track return until they

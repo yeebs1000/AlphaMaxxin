@@ -128,14 +128,9 @@ input:focus, select:focus, button:focus-visible { outline: none; border-color: v
          border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
 .panel h3 { font-size: 0.95rem; font-weight: 650; margin-bottom: 10px; }
 
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-       background: var(--muted); vertical-align: 1px; }
-.dot.on { background: var(--up); }
 .tag.mkt { cursor: pointer; font: inherit; font-size: 0.8rem; padding: 4px 12px;
            transition: border-color .15s ease, color .15s ease; }
 .tag.mkt:hover { border-color: var(--brand); }
-.tag.mkt:disabled { opacity: 0.6; cursor: default; }
-.tag.mkt .muted { font-size: 0.68rem; margin-left: 4px; }
 code { background: var(--panel-2); border: 1px solid var(--border);
        border-radius: 5px; padding: 1px 6px; font-size: 0.82rem; }
 

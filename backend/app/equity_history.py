@@ -1,7 +1,6 @@
 """Daily equity snapshots of the actual book — what the holdings' price
 series can't show: YOUR portfolio's value over time, drawdown, and
-risk-adjusted return. Recorded automatically on every portfolio report run
-(the digest makes that daily on weekdays).
+risk-adjusted return. Recorded automatically on every portfolio report run.
 
 Return methodology (honest ceiling): true time-weighted return needs dated
 cashflows we don't track. Approximation: each snapshot stores value AND cost
