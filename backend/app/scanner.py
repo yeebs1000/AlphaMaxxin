@@ -210,6 +210,7 @@ def run_cycle(now: datetime.datetime | None = None) -> dict:
         lines = [f"🛰 Scanner — {region} session"] + [
             f"{'🎯' if s['chokepoint'] else '•'} {s['ticker']} "
             f"[{s['setup']}] score {s['score']}" for s in top]
+        report_id = None
         if _cloud_budget_ok(state, now.date(), scanner_cfg):
             try:
                 report_id = _escalate([s["ticker"] for s in top])
@@ -221,6 +222,12 @@ def run_cycle(now: datetime.datetime | None = None) -> dict:
             lines.append("↳ cloud budget reached — deterministic alert only")
         send_message("\n".join(lines))
         alerts_sent += len(top)
+        # Feed the dashboard: newest first, capped.
+        latest = state.get("latest", [])
+        for s in top:
+            latest.insert(0, {**s, "region": region, "report_id": report_id,
+                              "at": now.isoformat()})
+        state["latest"] = latest[:20]
 
     state["next_due"] = next_due
     _save_state(state)
