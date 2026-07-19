@@ -102,8 +102,10 @@ def load_prompt(prompt_file: str) -> str:
 
 
 def extract_json(text: str):
-    """Parse a JSON object from an LLM response — direct, fenced, or embedded."""
-    text = text.strip()
+    """Parse a JSON object from an LLM response — direct, fenced, or embedded.
+    Local reasoning models (qwen3 etc.) prepend <think>…</think> blocks;
+    strip them so the JSON that follows still parses."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     try:
         return json.loads(text)
     except ValueError:

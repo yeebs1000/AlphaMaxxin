@@ -24,6 +24,15 @@ A JSON envelope containing:
   notable yield-on-cost; a ticker absent here paid nothing in the last year.
 - `screen` (scan presets only): the broad-market candidate universe with
   momentum ranks.
+- `chokepoints` (scan presets): a curated AI-infrastructure chokepoint
+  screen — small/mid caps controlling a critical supply-chain input, each
+  with mechanical checks (small-cap asymmetry, revenue inflection, analyst
+  upgrades, short crowding, red lines) and a 0-100 score. `share_note` is
+  human-curated research prose, not verified market-share data — present it
+  as the thesis to check. The methodology field says it: this distills a
+  self-reported track record (Chokepoint Theory), so frame candidates as
+  research leads requiring the validation window, never as proven winners.
+  Highlight only candidates scoring ≥60 with ≥4 checks known.
 - `run_config`: preset, targets, regions.
 
 ## Hard rules — data grounding

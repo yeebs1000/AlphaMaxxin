@@ -14,7 +14,7 @@ PRESETS = {
     "Opportunist": {
         "description": "Scan the broad market for new high-conviction setups.",
         "skills": ["screener", "technicals", "fundamentals", "news", "catalysts",
-                   "insiders", "signals", "risk", "alt_data"],
+                   "insiders", "signals", "risk", "alt_data", "chokepoints"],
         "analysts": ["fundamentals", "technicals_options", "news_catalysts",
                      "risk", "alternative_data"],
         "market_scan": True,

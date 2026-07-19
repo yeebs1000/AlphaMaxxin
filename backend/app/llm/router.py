@@ -44,7 +44,8 @@ def _provider_for(model: str, has_anthropic: bool, has_gemini: bool,
         return "local"
     return None
 
-_PROVIDER_CONCURRENCY = {"claude": 4, "gemini": 12, "openai": 8}
+# local: consumer GPUs serve one request well; two queue without thrashing.
+_PROVIDER_CONCURRENCY = {"claude": 4, "gemini": 12, "openai": 8, "local": 2}
 _DEFAULT_CONCURRENCY = 6
 _provider_semaphores: dict[str, asyncio.Semaphore] = {
     provider: asyncio.Semaphore(limit)

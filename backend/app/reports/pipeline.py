@@ -22,7 +22,7 @@ from ..skills import (
     order_book as ob_skill, ml_alpha as ml_skill, market_review as mr_skill,
     strategies as strat_skill, insiders as ins_skill, supply_chain as sc_skill,
     dividends as div_skill, alt_data as alt_skill,
-    digital_footprint as dfp_skill,
+    digital_footprint as dfp_skill, chokepoints as chk_skill,
 )
 from . import ledger, store
 from .presets import get_preset
@@ -274,6 +274,10 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
         out["ml_alpha"] = ml_skill.predict_targets(tickers, fetched["daily"],
                                                    macro=macro_snapshot)
 
+    if "chokepoints" in wanted:
+        emit("skills", "Screening supply-chain chokepoints", 54)
+        out["chokepoints"] = chk_skill.screen(registry.yfinance)
+
     if "alt_data" in wanted:
         emit("skills", "Reading attention proxies", 71)
         out["alt_data"] = alt_skill.collect(tickers)
@@ -332,6 +336,7 @@ def _analyst_payload(role: str, skills: dict, run_config: dict) -> dict:
     if role == "fundamentals":
         return {**common, "fundamentals": skills.get("fundamentals"),
                 "dividends": skills.get("dividends"),
+                "chokepoints": skills.get("chokepoints"),
                 "screen": skills.get("screen")}
     if role == "technicals_options":
         return {**common, "technicals": skills.get("technicals"),
