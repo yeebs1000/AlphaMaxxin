@@ -168,7 +168,7 @@ def main() -> None:
         message = "👀 AlphaMaxxin watcher\n" + "\n".join(
             [a["text"] for a in alerts] + extra)
         from .notify.telegram import send_message
-        send_message(message, topic="portfolio")  # send before logging (cp1252 lesson)
+        send_message(message, topic="portfolio_medic")  # send before logging (cp1252 lesson)
         try:
             print(message)
         except UnicodeEncodeError:

@@ -42,32 +42,50 @@ def _ledger_line(ledger_summary: dict | None) -> str | None:
     return "📒 Ledger: " + " · ".join(parts) if parts else None
 
 
-def build_message(reports: dict, now: datetime.datetime | None = None,
-                  ledger_summary: dict | None = None) -> str:
-    """reports: {preset_name: report_dict}. → compact plain-text message."""
-    now = now or datetime.datetime.now(datetime.timezone.utc)
+# Each preset's digest message lands in its own forum topic — see
+# notify/telegram.py (TELEGRAM_TOPIC_<LABEL> env vars).
+_TOPIC_FOR_PRESET = {"Opportunist": "opportunist", "Portfolio Medic": "portfolio_medic"}
+
+
+def _header(now: datetime.datetime) -> list[str]:
     us, hk, sg = (cal.status("US", now), cal.status("HK", now), cal.status("SG", now))
-    lines = [f"📊 AlphaMaxxin Daily — {now:%a %b %d}",
-             f"Markets: US {'open' if us['is_open'] else 'closed'} · "
-             f"HK {'open' if hk['is_open'] else 'closed'} · "
-             f"SG {'open' if sg['is_open'] else 'closed'} "
-             f"(last US session {us['last_trading_day']})", ""]
+    return [f"📊 AlphaMaxxin Daily — {now:%a %b %d}",
+            f"Markets: US {'open' if us['is_open'] else 'closed'} · "
+            f"HK {'open' if hk['is_open'] else 'closed'} · "
+            f"SG {'open' if sg['is_open'] else 'closed'} "
+            f"(last US session {us['last_trading_day']})", ""]
 
-    opp = (reports.get("Opportunist") or {}).get("sections", {}).get("synthesis", {})
+
+def build_opportunist_message(report: dict | None,
+                              now: datetime.datetime | None = None) -> str:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    opp = (report or {}).get("sections", {}).get("synthesis", {})
     ideas = [r for r in opp.get("recommendations", []) if r.get("action") in _BUY]
-    lines.append("🔎 Worth noting (Opportunist scan)")
+    lines = _header(now) + ["🔎 Worth noting (Opportunist scan)"]
     lines += [_rec_line(r) for r in ideas[:_IDEAS_LIMIT]] or ["• (no high-conviction ideas today)"]
-    lines.append("")
+    lines += ["", "Full report → run the workstation."]
+    return "\n".join(lines)
 
-    med = (reports.get("Portfolio Medic") or {}).get("sections", {}).get("synthesis", {})
+
+def build_portfolio_medic_message(report: dict | None,
+                                  ledger_summary: dict | None = None,
+                                  now: datetime.datetime | None = None) -> str:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    med = (report or {}).get("sections", {}).get("synthesis", {})
     watch = [r for r in med.get("recommendations", []) if r.get("action") in _TRIM]
-    lines.append("🩺 Look out for (your holdings)")
+    lines = _header(now) + ["🩺 Look out for (your holdings)"]
     lines += [_rec_line(r) for r in watch[:_IDEAS_LIMIT]] or ["• nothing flagged to trim today"]
     ledger_line = _ledger_line(ledger_summary)
     if ledger_line:
         lines += ["", ledger_line]
     lines += ["", "Full report → run the workstation."]
     return "\n".join(lines)
+
+
+_BUILDER_FOR_PRESET = {
+    "Opportunist": lambda report, ledger_summary, now: build_opportunist_message(report, now),
+    "Portfolio Medic": build_portfolio_medic_message,
+}
 
 
 async def _run_preset(preset: str) -> dict | None:
@@ -115,9 +133,10 @@ def _score_ledger() -> dict | None:
         return None
 
 
-def run_digest(presets=_DIGEST_PRESETS, sender=None) -> str | None:
-    """Run the presets, build the message, send it. Returns the message (or
-    None if skipped). `sender` defaults to Telegram; tests pass a fake."""
+def run_digest(presets=_DIGEST_PRESETS, sender=None) -> dict[str, str] | None:
+    """Run the presets, build one message per preset, send each to its own
+    forum topic. Returns {preset: message} (or None if skipped). `sender`
+    takes (message, topic) — defaults to Telegram; tests pass a fake."""
     if not cal.is_trading_day("US"):
         print("[digest] non-trading day (US) — skipping")
         return None
@@ -125,19 +144,23 @@ def run_digest(presets=_DIGEST_PRESETS, sender=None) -> str | None:
         _refresh_portfolio()
     reports = {p: asyncio.run(_run_preset(p)) for p in presets}
     ledger_summary = _score_ledger()
-    message = build_message(reports, ledger_summary=ledger_summary)
-    # Send first — a console/log encoding hiccup must never swallow delivery.
     if sender is None:
         from .notify.telegram import send_message
-        sender = lambda m: send_message(m, topic="portfolio")
-    sender(message)
-    # Then log it, encoding-safe: Windows' cp1252 stdout can't encode the emoji
-    # in the message, which would otherwise raise UnicodeEncodeError.
-    try:
-        print(message)
-    except UnicodeEncodeError:
-        print(message.encode("ascii", "replace").decode("ascii"))
-    return message
+        sender = send_message
+
+    messages = {}
+    for preset in presets:
+        if preset not in _BUILDER_FOR_PRESET:
+            continue
+        msg = _BUILDER_FOR_PRESET[preset](reports.get(preset), ledger_summary, None)
+        messages[preset] = msg
+        # Send first — a console/log encoding hiccup must never swallow delivery.
+        sender(msg, topic=_TOPIC_FOR_PRESET[preset])
+        try:
+            print(msg)
+        except UnicodeEncodeError:
+            print(msg.encode("ascii", "replace").decode("ascii"))
+    return messages
 
 
 if __name__ == "__main__":
