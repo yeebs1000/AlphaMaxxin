@@ -10,6 +10,10 @@ Entry point: `python -m app.digest`, fired by Windows Task Scheduler on this
 machine (via scripts/daily_digest.cmd) so it can reach the LOCAL brokers —
 Portfolio Medic syncs live positions first. Skips non-trading days. This spends
 LLM tokens by design — the user authorised the scheduled run.
+
+`python -m app.digest weekly` runs the Quant Lab preset instead (its own
+topic, scripts/weekly_quant_digest.cmd) — not registered as a scheduled task
+yet, same as the daily digest's own task: code ready, scheduling is opt-in.
 """
 import asyncio
 import datetime
@@ -22,6 +26,7 @@ from .reports.pipeline import run_report
 # Digest presets. Opportunist ignores the target (it scans); Portfolio Medic
 # reads Portfolio.md (in CI, written from a secret before this runs).
 _DIGEST_PRESETS = ("Opportunist", "Portfolio Medic")
+_WEEKLY_PRESETS = ("Quant Lab",)   # separate cadence — its own topic, run weekly
 _IDEAS_LIMIT = 6          # keep it glanceable
 _BUY = {"buy", "accumulate"}
 _TRIM = {"reduce", "sell"}
@@ -44,7 +49,8 @@ def _ledger_line(ledger_summary: dict | None) -> str | None:
 
 # Each preset's digest message lands in its own forum topic — see
 # notify/telegram.py (TELEGRAM_TOPIC_<LABEL> env vars).
-_TOPIC_FOR_PRESET = {"Opportunist": "opportunist", "Portfolio Medic": "portfolio_medic"}
+_TOPIC_FOR_PRESET = {"Opportunist": "opportunist", "Portfolio Medic": "portfolio_medic",
+                    "Quant Lab": "quant_lab"}
 
 
 def _header(now: datetime.datetime) -> list[str]:
@@ -82,9 +88,21 @@ def build_portfolio_medic_message(report: dict | None,
     return "\n".join(lines)
 
 
+def build_quant_message(report: dict | None,
+                        now: datetime.datetime | None = None) -> str:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    q = (report or {}).get("sections", {}).get("synthesis", {})
+    ideas = [r for r in q.get("recommendations", []) if r.get("action") in _BUY]
+    lines = _header(now) + ["📐 Quant Lab — weekly scan"]
+    lines += [_rec_line(r) for r in ideas[:_IDEAS_LIMIT]] or ["• (nothing quant-flagged this week)"]
+    lines += ["", "Full report → run the workstation."]
+    return "\n".join(lines)
+
+
 _BUILDER_FOR_PRESET = {
     "Opportunist": lambda report, ledger_summary, now: build_opportunist_message(report, now),
     "Portfolio Medic": build_portfolio_medic_message,
+    "Quant Lab": lambda report, ledger_summary, now: build_quant_message(report, now),
 }
 
 
@@ -166,6 +184,8 @@ def run_digest(presets=_DIGEST_PRESETS, sender=None) -> dict[str, str] | None:
 if __name__ == "__main__":
     # This is a standalone entry point (not the API server), so load .env
     # ourselves — keys, broker ports, and Telegram creds all live there.
+    import sys
     from .config import load_env
     load_env()
-    run_digest()
+    weekly = len(sys.argv) > 1 and sys.argv[1] == "weekly"
+    run_digest(presets=_WEEKLY_PRESETS if weekly else _DIGEST_PRESETS)

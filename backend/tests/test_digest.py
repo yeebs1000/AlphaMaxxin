@@ -46,6 +46,32 @@ def test_build_message_ledger_line_only_when_resolved():
     assert "Ledger" not in digest.build_portfolio_medic_message(None, now=_WEEKDAY)  # no summary
 
 
+def test_build_quant_message_filters_and_formats():
+    report = _report([
+        {"ticker": "NVDA", "action": "accumulate", "conviction": "high",
+         "size": "Half", "rationale": "options skew + ML alpha agree"},
+        {"ticker": "XYZ", "action": "hold", "conviction": "low"}])
+    msg = digest.build_quant_message(report, now=_WEEKDAY)
+    assert "NVDA — accumulate" in msg and "XYZ" not in msg
+    assert "Quant Lab" in msg
+    assert "nothing quant-flagged" in digest.build_quant_message(None, now=_WEEKDAY)
+
+
+def test_run_digest_weekly_quant_sends_to_its_own_topic(monkeypatch):
+    monkeypatch.setattr(digest.cal, "is_trading_day", lambda *a, **k: True)
+
+    async def fake_run(preset):
+        return _report([{"ticker": "AMD", "action": "buy", "conviction": "medium",
+                         "size": "Starter", "rationale": "y"}])
+    monkeypatch.setattr(digest, "_run_preset", fake_run)
+
+    sent = []
+    messages = digest.run_digest(presets=digest._WEEKLY_PRESETS,
+                                 sender=lambda m, topic: sent.append((m, topic)))
+    assert sent and sent[0][1] == "quant_lab"
+    assert messages["Quant Lab"] == sent[0][0]
+
+
 def test_run_digest_skips_non_trading_day(monkeypatch):
     monkeypatch.setattr(digest.cal, "is_trading_day", lambda *a, **k: False)
     sent = []
