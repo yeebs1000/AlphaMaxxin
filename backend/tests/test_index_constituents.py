@@ -74,6 +74,47 @@ def test_wiki_tables_offline_raises():
         idx._wiki_tables("List_of_S%26P_500_companies")
 
 
+def test_audit_against_ibkr_unavailable_returns_none(monkeypatch):
+    import app.brokers.ibkr_client as ibkr
+    monkeypatch.setattr(ibkr, "qualify_symbols", lambda specs: None)
+    assert idx.audit_against_ibkr(["AAPL"], "US") is None
+    assert idx.audit_against_ibkr([], "US") is None
+    assert idx.audit_against_ibkr(["AAPL"], "JP") is None  # no IBKR mapping
+
+
+def test_audit_against_ibkr_splits_resolved_and_builds_correct_specs(monkeypatch):
+    import app.brokers.ibkr_client as ibkr
+    captured = {}
+
+    def fake_qualify(specs):
+        captured["specs"] = specs
+        return {s["key"]: s["symbol"] != "9999" for s in specs}
+
+    monkeypatch.setattr(ibkr, "qualify_symbols", fake_qualify)
+    out = idx.audit_against_ibkr(["0700.HK", "9999.HK"], "HK")
+    assert out == {"resolved": ["0700.HK"], "unresolved": ["9999.HK"]}
+    specs = {s["key"]: s for s in captured["specs"]}
+    assert specs["0700.HK"] == {"key": "0700.HK", "symbol": "700",
+                                "exchange": "SEHK", "currency": "HKD"}
+
+
+def test_audit_against_ibkr_us_and_sg_symbol_conversion(monkeypatch):
+    import app.brokers.ibkr_client as ibkr
+    captured = {}
+
+    def fake_qualify(specs):
+        captured["specs"] = specs
+        return {}
+
+    monkeypatch.setattr(ibkr, "qualify_symbols", fake_qualify)
+    idx.audit_against_ibkr(["BRK-B"], "US")
+    assert captured["specs"][0]["symbol"] == "BRK B"
+    assert captured["specs"][0]["exchange"] == "SMART"
+    idx.audit_against_ibkr(["D05.SI"], "SG")
+    assert captured["specs"][0] == {"key": "D05.SI", "symbol": "D05",
+                                    "exchange": "SGX", "currency": "SGD"}
+
+
 def test_universe_fns_propagate_offline_tripwire(tmp_path):
     # index_constituents itself doesn't catch OfflineError (same contract as
     # every other provider, e.g. YahooProvider.ohlcv) — screener.candidates_for

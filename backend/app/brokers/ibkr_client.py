@@ -19,7 +19,7 @@ import threading
 import time
 
 try:
-    from ib_async import IB
+    from ib_async import IB, Stock
     _IBKR_AVAILABLE = True
 except ImportError:
     _IBKR_AVAILABLE = False
@@ -115,3 +115,56 @@ def get_ibkr_positions() -> list | None:
     if result is not None:
         _positions_cache = (time.monotonic(), result)
     return result
+
+
+def qualify_symbols(specs: list[dict]) -> dict[str, bool] | None:
+    """Verification tool, not a live data source: for each
+    {"key", "symbol", "exchange", "currency"} spec, resolve it against
+    IBKR's real contract database and report whether it's a live, tradable
+    listing. Returns {key: resolved_bool} keyed by the caller's own `key`
+    (so callers needn't fight IBKR's symbol-format quirks — e.g. share
+    classes as "BRK B" not "BRK-B" — to match results back), or None if
+    ib_async isn't installed or TWS/Gateway isn't reachable.
+
+    Read-only, no order entry. Meant for spot-checking scraped ticker
+    lists (e.g. index_constituents.py's Wikipedia parse) against a real
+    contract database — not wired into any hot path, run on demand."""
+    if not IBKR_AVAILABLE or not specs:
+        return None
+    if not _gateway_reachable():
+        return None
+
+    box = {}
+
+    def _fetch():
+        async def _run():
+            ib = IB()
+            try:
+                await ib.connectAsync(IBKR_HOST, IBKR_PORT,
+                                      clientId=IBKR_CLIENT_ID + 1,  # distinct from positions()
+                                      timeout=_CONNECT_TIMEOUT)
+                contracts = [Stock(s["symbol"], s["exchange"], s["currency"])
+                            for s in specs]
+                qualified = await ib.qualifyContractsAsync(*contracts, returnAll=True)
+                # returnAll=True keeps input order/length, unresolved -> None —
+                # UNVERIFIED against a live account, matches ib_async's
+                # documented contract but never actually run (house rule: no
+                # live API calls during dev). Validate on first real use.
+                box["result"] = {spec["key"]: (c is not None and bool(c.conId))
+                                 for spec, c in zip(specs, qualified)}
+            except Exception:
+                box["result"] = None
+            finally:
+                ib.disconnect()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_run())
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_fetch, daemon=True)
+    t.start()
+    t.join(timeout=_REQUEST_TIMEOUT)
+    return box.get("result")

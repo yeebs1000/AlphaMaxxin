@@ -118,6 +118,36 @@ def _merge(*lists: list | None) -> list | None:
     return out or None
 
 
+# IBKR contract-spec conversion per region (exchange, currency, and how to
+# turn our ticker format back into IBKR's local-symbol convention).
+_IBKR_REGION = {
+    "US": ("SMART", "USD", lambda t: t.replace("-", " ")),          # BRK-B -> BRK B
+    "HK": ("SEHK", "HKD", lambda t: t.split(".")[0].lstrip("0") or "0"),  # 0700.HK -> 700
+    "SG": ("SGX", "SGD", lambda t: t.split(".")[0]),                # D05.SI -> D05
+}
+
+
+def audit_against_ibkr(tickers: list[str], region: str) -> dict | None:
+    """Verification tool for the (unverified, per the module docstring)
+    Wikipedia scrape: resolves each ticker against IBKR's real contract
+    database. {"resolved": [...], "unresolved": [...]} or None if IBKR
+    isn't installed/connected (TWS/Gateway must be running — this is a
+    manual, on-demand check, not part of any scan). Run this once after
+    wiring a new region, or whenever the universe looks suspicious."""
+    from ..brokers.ibkr_client import qualify_symbols
+    region_info = _IBKR_REGION.get(region)
+    if not region_info or not tickers:
+        return None
+    exchange, currency, to_local = region_info
+    specs = [{"key": t, "symbol": to_local(t), "exchange": exchange,
+             "currency": currency} for t in tickers]
+    results = qualify_symbols(specs)
+    if results is None:
+        return None
+    return {"resolved": [t for t in tickers if results.get(t)],
+            "unresolved": [t for t in tickers if not results.get(t)]}
+
+
 def us_universe() -> list | None:
     """S&P 500 + S&P MidCap 400 — same non-mega-cap spirit as the curated
     fallback, just the real thing instead of ~30 hand-picks."""
