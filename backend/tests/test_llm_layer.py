@@ -32,6 +32,33 @@ async def test_call_llm_no_key_reports_reason_not_silent_empty(monkeypatch):
     assert "No LLM API key configured" in result["error"]
 
 
+async def test_openai_kwargs_contract():
+    # json_mode + cap present only when asked (older servers reject unknowns).
+    plain = router._openai_kwargs("m", "sys", "usr", False, None)
+    assert "response_format" not in plain and "max_tokens" not in plain
+    full = router._openai_kwargs("m", "sys", "usr", True, 1500)
+    assert full["response_format"] == {"type": "json_object"}
+    assert full["max_tokens"] == 1500
+    assert full["messages"][0]["role"] == "system"
+
+
+async def test_default_transports_apply_json_mode_and_caps(monkeypatch):
+    captured = {}
+
+    async def fake_call_llm(system_prompt, user_prompt, model, **kw):
+        captured.update(kw)
+        return {"text": "{}", "model": model, "in_tokens": 0, "out_tokens": 0}
+
+    monkeypatch.setattr(analysts.router, "call_llm", fake_call_llm)
+    await analysts.ANALYST_TRANSPORT("s", "u", "gemini-3.5-flash")
+    assert captured == {"json_mode": True,
+                        "max_output_tokens": analysts.ANALYST_MAX_TOKENS}
+    captured.clear()
+    await analysts.SYNTHESIS_TRANSPORT("s", "u", "claude-sonnet-4-6")
+    assert captured == {"json_mode": True,
+                        "max_output_tokens": analysts.SYNTHESIS_MAX_TOKENS}
+
+
 def test_semaphores():
     assert router.semaphore_for_model("claude-sonnet-4-6") is \
         router.semaphore_for_model("claude-opus-4-8")

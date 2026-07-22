@@ -14,6 +14,29 @@ from .cache import LLMCache, response_key
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
+# Output-token ceilings. Analysts return one compact finding (a short
+# key_findings list + a 100-250 word narrative ≈ 600 tokens) — 1500 is
+# generous headroom while still hard-capping a runaway generation, the main
+# thing that pushes an analyst call toward the timeout. Synthesis writes the
+# whole report, so it keeps the roomier default.
+ANALYST_MAX_TOKENS = 1500
+SYNTHESIS_MAX_TOKENS = 8192
+
+
+def _bound_transport(json_mode: bool, max_output_tokens: int):
+    """Default transport = call_llm with the JSON-mode + token-cap contract
+    baked in, so run_analyst/run_synthesis apply it without every injected
+    test fake having to grow the two extra kwargs."""
+    async def transport(system_prompt: str, user_prompt: str, model: str) -> dict:
+        return await router.call_llm(system_prompt, user_prompt, model=model,
+                                     json_mode=json_mode,
+                                     max_output_tokens=max_output_tokens)
+    return transport
+
+
+ANALYST_TRANSPORT = _bound_transport(True, ANALYST_MAX_TOKENS)
+SYNTHESIS_TRANSPORT = _bound_transport(True, SYNTHESIS_MAX_TOKENS)
+
 # The active analyst lenses. required_feeds reference ProviderRegistry
 # feed_status() keys — the lens runs if ANY of its feeds is up (they degrade
 # gracefully), except where noted.
@@ -129,7 +152,7 @@ def extract_json(text: str):
 async def run_analyst(role: str, payload: dict, model: str,
                       cache: LLMCache | None = None,
                       meter=None, run_id: str = "",
-                      transport=router.call_llm) -> dict:
+                      transport=ANALYST_TRANSPORT) -> dict:
     """One analyst call: skills JSON in → structured finding out.
     Returns {role, ok, stance, confidence, key_findings, narrative_md,
     cached, model}. A failed/unparseable call returns ok=False — the
@@ -175,7 +198,7 @@ async def run_analyst(role: str, payload: dict, model: str,
 async def run_synthesis(payload: dict, model: str,
                         cache: LLMCache | None = None,
                         meter=None, run_id: str = "",
-                        transport=router.call_llm) -> dict:
+                        transport=SYNTHESIS_TRANSPORT) -> dict:
     """Final report writer: analyst findings + composite signals in →
     {ok, markdown, recommendations, cached, model}."""
     system_prompt = load_prompt("synthesis.md")

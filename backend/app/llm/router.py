@@ -68,10 +68,38 @@ def _result(text: str, model: str, in_tokens: int = 0, out_tokens: int = 0,
             "in_tokens": in_tokens, "out_tokens": out_tokens, "error": error}
 
 
+def _openai_kwargs(model: str, system_prompt: str, user_prompt: str,
+                   json_mode: bool, max_output_tokens: int | None) -> dict:
+    """chat.completions.create kwargs for the OpenAI + local (OpenAI-compatible)
+    branches — response_format/max_tokens only when asked, so an older server
+    or a model that rejects them isn't handed an unsupported field. json_object
+    mode needs the word 'json' in the prompt, which the lens prompts satisfy."""
+    kwargs = {
+        "model": model,
+        "messages": [{"role": "system", "content": system_prompt},
+                     {"role": "user", "content": user_prompt}],
+        "temperature": 0.2,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    if max_output_tokens:
+        kwargs["max_tokens"] = max_output_tokens
+    return kwargs
+
+
 async def call_llm(system_prompt: str, user_prompt: str,
-                   model: str = DEFAULT_MODEL) -> dict:
+                   model: str = DEFAULT_MODEL, json_mode: bool = False,
+                   max_output_tokens: int | None = None) -> dict:
     """Returns {text, model, in_tokens, out_tokens}. Empty text = failure
-    (same semantics as v1)."""
+    (same semantics as v1).
+
+    json_mode asks the provider for valid JSON directly (Gemini
+    response_mime_type, OpenAI/local response_format=json_object) — the
+    lenses already prompt for a fixed JSON shape, so this removes the
+    fences/preamble a free-form model adds and keeps output parseable.
+    max_output_tokens caps generation: the analysts don't need long prose,
+    and an uncapped narrative is the main thing that stretches a call toward
+    the timeout. extract_json still runs as the safety net."""
     guard_online()
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
@@ -92,16 +120,10 @@ async def call_llm(system_prompt: str, user_prompt: str,
                             api_key=os.environ.get("LOCAL_LLM_API_KEY", "local"),
                             timeout=REQUEST_TIMEOUT_S * 3, max_retries=0)
             local_model = model.split("/", 1)[1] if "/" in model else model
+            local_kwargs = _openai_kwargs(local_model, system_prompt, user_prompt,
+                                          json_mode, max_output_tokens)
             response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.chat.completions.create,
-                    model=local_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.2,
-                ),
+                asyncio.to_thread(client.chat.completions.create, **local_kwargs),
                 timeout=REQUEST_TIMEOUT_S * 3)
             if response and response.choices:
                 usage = getattr(response, "usage", None)
@@ -118,12 +140,14 @@ async def call_llm(system_prompt: str, user_prompt: str,
             # SDK handles transient 429/5xx retries; timeout bounds each attempt.
             client = AsyncAnthropic(api_key=anthropic_key,
                                     timeout=REQUEST_TIMEOUT_S, max_retries=2)
+            # Claude's Messages API has no json_mode flag — the prompt-driven
+            # JSON + extract_json path carries it; the cap still applies.
             response = await asyncio.wait_for(
                 client.messages.create(
                     model=model,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
-                    max_tokens=8192,
+                    max_tokens=max_output_tokens or 8192,
                     temperature=0.2,
                 ),
                 timeout=REQUEST_TIMEOUT_S * 3)  # belt over the SDK's retries
@@ -145,6 +169,11 @@ async def call_llm(system_prompt: str, user_prompt: str,
                     timeout=int(REQUEST_TIMEOUT_S * 1000)))
             except TypeError:
                 client = genai.Client(api_key=gemini_key)
+            gem_cfg = {"system_instruction": system_prompt, "temperature": 0.2}
+            if max_output_tokens:
+                gem_cfg["max_output_tokens"] = max_output_tokens
+            if json_mode:
+                gem_cfg["response_mime_type"] = "application/json"
             # Sync client — thread keeps concurrent analysts parallel; wait_for
             # guarantees the caller never hangs even if the SDK stalls.
             response = await asyncio.wait_for(
@@ -152,10 +181,7 @@ async def call_llm(system_prompt: str, user_prompt: str,
                     client.models.generate_content,
                     model=model,
                     contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        temperature=0.2,
-                    ),
+                    config=types.GenerateContentConfig(**gem_cfg),
                 ),
                 timeout=REQUEST_TIMEOUT_S)
             if response and response.text:
@@ -172,16 +198,10 @@ async def call_llm(system_prompt: str, user_prompt: str,
                             timeout=REQUEST_TIMEOUT_S, max_retries=1)
             openai_model = model if ("gpt" in model or model.startswith("o")) \
                 else "gpt-4o-mini"
+            oai_kwargs = _openai_kwargs(openai_model, system_prompt, user_prompt,
+                                        json_mode, max_output_tokens)
             response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.chat.completions.create,
-                    model=openai_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.2,
-                ),
+                asyncio.to_thread(client.chat.completions.create, **oai_kwargs),
                 timeout=REQUEST_TIMEOUT_S * 2)
             if response and response.choices:
                 usage = getattr(response, "usage", None)
