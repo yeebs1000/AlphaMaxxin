@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, useApi, fmtUsd } from "../api";
 
-const MODELS = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3.5-flash",
+const MODELS = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash",
                 "claude-3-5-sonnet-latest", "claude-sonnet-4-6", "claude-opus-4-8"];
 const MARKETS = ["US", "SG", "HK", "JP", "KR"] as const;
 const ROLE_LABELS: Record<string, string> = {

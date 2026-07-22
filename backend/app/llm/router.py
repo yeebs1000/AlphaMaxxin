@@ -9,7 +9,7 @@ import sys
 
 from ..data.base import guard_online
 
-DEFAULT_MODEL = "gemini-3.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"  # cheapest tier; toggle up per role in Settings
 
 # Hard ceiling on any single provider call. Without one, a stalled request
 # (e.g. a 503 storm) hangs forever — a scheduled watcher run once sat stuck

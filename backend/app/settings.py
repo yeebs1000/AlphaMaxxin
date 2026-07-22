@@ -18,7 +18,9 @@ DEFAULT_SETTINGS = {
         "news_catalysts": DEFAULT_MODEL,
         "risk": DEFAULT_MODEL,
         "order_book": DEFAULT_MODEL,
-        "synthesis": "claude-sonnet-4-6",  # the one call worth the better tier
+        # Everything defaults to the cheap flash-lite tier; bump any role
+        # (synthesis especially) to gemini-3.6-flash in Settings when wanted.
+        "synthesis": DEFAULT_MODEL,
     },
     "llm_cache_enabled": True,
     # Which markets broad scans (Opportunist etc.) cover — the dashboard
