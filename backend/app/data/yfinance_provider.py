@@ -6,7 +6,8 @@ Imported lazily so the backend runs without the package installed.
 Fundamentals are returned as a flat "raw" dict consumed by
 skills/fundamentals.py — keep field names stable, tests fixture this shape.
 """
-from .base import DiskTTLCache, guard_online, to_number, TTL_FUNDAMENTALS
+from .base import (DiskTTLCache, guard_online, to_number, TTL_FUNDAMENTALS,
+                   TTL_STATEMENTS)
 
 # .info keys we extract — single source of truth for the raw shape.
 _INFO_FIELDS = {
@@ -131,6 +132,64 @@ class YFinanceProvider:
             return {"ttm_dps": round(ttm, 4), "ex_dividend_date": ex_date}
         except Exception:
             return None
+
+    # Statement line items the Piotroski F-score needs, per frame.
+    # yfinance row-label → our field name.
+    _STMT_ROWS = {
+        "income": {"Total Revenue": "revenue", "Cost Of Revenue": "cogs",
+                   "Net Income": "net_income",
+                   "Diluted Average Shares": "shares"},
+        "balance": {"Total Assets": "total_assets", "Total Debt": "total_debt",
+                    "Current Assets": "current_assets",
+                    "Current Liabilities": "current_liabilities",
+                    "Ordinary Shares Number": "shares_balance"},
+        "cashflow": {"Operating Cash Flow": "cfo"},
+    }
+
+    def statements(self, ticker: str) -> list | None:
+        """Annual statement line items for F-score math, newest year first:
+        [{"period", "revenue", "cogs", "net_income", "shares", "total_assets",
+          "total_debt", "current_assets", "current_liabilities", "cfo"}, ...]
+        Missing items are simply absent — consumers must treat absent as
+        unknown, not zero. None when yfinance has no statements (common for
+        smaller HK listings — Yahoo's statement coverage thins fast off the
+        main board)."""
+        return self._cache.get_or_fetch("yf_statements", ticker, TTL_STATEMENTS,
+                                        lambda: self._fetch_statements(ticker))
+
+    def _fetch_statements(self, ticker: str) -> list | None:
+        guard_online()
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            frames = {"income": t.income_stmt, "balance": t.balance_sheet,
+                      "cashflow": t.cashflow}
+        except Exception:
+            return None
+        years: dict = {}  # period iso date -> {field: value}
+        for kind, df in frames.items():
+            if df is None or getattr(df, "empty", True):
+                continue
+            for label, field in self._STMT_ROWS[kind].items():
+                if label not in df.index:
+                    continue
+                for col in df.columns:
+                    value = to_number(df.loc[label, col])
+                    if value is None:
+                        continue
+                    years.setdefault(str(col.date()), {})[field] = value
+        rows = []
+        for period in sorted(years, reverse=True):
+            row = {"period": period, **years[period]}
+            # Diluted-average shares (income) preferred; balance-sheet share
+            # count fills the gap when the income row is missing.
+            row.setdefault("shares", row.pop("shares_balance", None))
+            row.pop("shares_balance", None)
+            if row.get("shares") is None:
+                row.pop("shares", None)
+            if len(row) > 1:
+                rows.append(row)
+        return rows or None
 
     def option_chain(self, ticker: str) -> dict | None:
         """Nearest-expiry option chain (US tickers only):

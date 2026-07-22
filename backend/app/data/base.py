@@ -160,6 +160,7 @@ TTL_QUOTE = 300
 TTL_NEWS = 300
 TTL_OHLCV = 6 * 3600
 TTL_FUNDAMENTALS = 24 * 3600
+TTL_STATEMENTS = 30 * 86400  # annual statements move quarterly at most
 TTL_MACRO = 12 * 3600
 TTL_CALENDAR = 12 * 3600
 

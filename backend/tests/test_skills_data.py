@@ -273,6 +273,46 @@ def test_fundamentals_none_without_sources():
     assert fundamentals.compute_fundamentals("CCC", None, None) is None
 
 
+def _year(period, *, ni=100, ta=1000, cfo=140, debt=200, ca=300, cl=150,
+          shares=50, rev=800, cogs=400):
+    return {"period": period, "net_income": ni, "total_assets": ta, "cfo": cfo,
+            "total_debt": debt, "current_assets": ca, "current_liabilities": cl,
+            "shares": shares, "revenue": rev, "cogs": cogs}
+
+
+def test_f_score_all_nine_pass():
+    # y0 improves on every axis vs y1 → 9/9.
+    y1 = _year("2024-12-31", ni=50, ta=1000, cfo=40, debt=300, ca=250,
+               cl=150, shares=52, rev=700, cogs=400)
+    y0 = _year("2025-12-31")
+    fs = fundamentals.f_score([y0, y1])
+    assert fs["score"] == 9 and fs["known"] == 9
+    assert fs["period"] == "2025-12-31"
+
+
+def test_f_score_missing_inputs_drop_from_known():
+    # A bank-shaped row: no COGS, no current ratio → those criteria unknown.
+    y0 = {"period": "2025-12-31", "net_income": 100, "total_assets": 1000,
+          "cfo": 140, "total_debt": 200, "revenue": 800, "shares": 50}
+    y1 = {"period": "2024-12-31", "net_income": 50, "total_assets": 1000,
+          "cfo": 40, "total_debt": 300, "revenue": 700, "shares": 52}
+    fs = fundamentals.f_score([y0, y1])
+    assert fs["known"] == 7                       # margin_up + liquidity_up unknown
+    assert fs["criteria"]["margin_up"] is None
+    assert fs["criteria"]["liquidity_up"] is None
+    assert fs["score"] == 7
+
+
+def test_f_score_penalizes_deterioration_and_needs_two_years():
+    y1 = _year("2024-12-31")
+    y0 = _year("2025-12-31", ni=-20, cfo=-30, debt=500, shares=60,
+               rev=600, cogs=400)
+    fs = fundamentals.f_score([y0, y1])
+    assert fs["score"] <= 2                       # nearly everything worsened
+    assert fundamentals.f_score([y0]) is None
+    assert fundamentals.f_score(None) is None
+
+
 def test_fundamentals_short_interest_and_flag():
     raw = {"ticker": "SHRT", "price": 10.0, "short_ratio": 6.2,
            "short_pct_float": 0.23, "shares_short": 4.5e7}

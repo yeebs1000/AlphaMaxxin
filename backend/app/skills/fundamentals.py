@@ -132,6 +132,54 @@ def _from_finnhub(ticker: str, metrics_response: dict) -> dict:
     return snap
 
 
+def f_score(years: list | None) -> dict | None:
+    """Piotroski F-score from annual statement rows (newest first, shape of
+    YFinanceProvider.statements). Formulas follow Piotroski (2000) as
+    implemented in FinanceToolkit (MIT) — nine boolean criteria, one point
+    each. Criteria whose inputs are missing return None and drop out of
+    `known` instead of counting against the name (statement coverage for
+    HK/Asia listings is patchy; sector gaps like no-COGS banks self-handle
+    the same way). None when fewer than two years exist — every delta
+    criterion needs a prior year."""
+    if not years or len(years) < 2:
+        return None
+    y0, y1 = years[0], years[1]
+
+    def div(num, den):
+        return None if num is None or not den else num / den
+
+    def gt(a, b):
+        return None if a is None or b is None else a > b
+
+    roa0 = div(y0.get("net_income"), y0.get("total_assets"))
+    roa1 = div(y1.get("net_income"), y1.get("total_assets"))
+    gm0 = div((y0["revenue"] - y0["cogs"]) if y0.get("revenue") is not None
+              and y0.get("cogs") is not None else None, y0.get("revenue"))
+    gm1 = div((y1["revenue"] - y1["cogs"]) if y1.get("revenue") is not None
+              and y1.get("cogs") is not None else None, y1.get("revenue"))
+    criteria = {
+        "roa_positive": gt(roa0, 0),
+        "cfo_positive": gt(y0.get("cfo"), 0),
+        "roa_improving": gt(roa0, roa1),
+        # Accrual quality: CFO > net income (same as CFO/TA > ROA).
+        "accruals_ok": gt(y0.get("cfo"), y0.get("net_income")),
+        "leverage_down": gt(div(y1.get("total_debt"), y1.get("total_assets")),
+                            div(y0.get("total_debt"), y0.get("total_assets"))),
+        "liquidity_up": gt(div(y0.get("current_assets"), y0.get("current_liabilities")),
+                           div(y1.get("current_assets"), y1.get("current_liabilities"))),
+        "no_dilution": (None if y0.get("shares") is None or y1.get("shares") is None
+                        else y0["shares"] <= y1["shares"]),
+        "margin_up": gt(gm0, gm1),
+        "turnover_up": gt(div(y0.get("revenue"), y0.get("total_assets")),
+                          div(y1.get("revenue"), y1.get("total_assets"))),
+    }
+    known = [v for v in criteria.values() if v is not None]
+    if not known:
+        return None
+    return {"score": sum(known), "known": len(known), "criteria": criteria,
+            "period": y0.get("period")}
+
+
 def _quality_flags(raw: dict) -> list[str]:
     """Mechanical red/green flags the analyst must address, not invent.
 

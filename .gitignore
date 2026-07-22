@@ -37,3 +37,15 @@ HANDOFF.md
 
 # Runtime logs from scheduled scripts (digest, watcher)
 scripts/*.log
+
+# Personal notification/automation layer — local only, never in the public
+# repo (see HANDOFF "Public-repo scope decision"). Restored from git history
+# to run on this machine; kept untracked here.
+backend/app/notify/
+backend/app/scanner.py
+backend/app/api/scanner.py
+backend/app/skills/chokepoints.py
+backend/app/digest.py
+backend/app/watcher.py
+backend/tests/test_scanner.py
+backend/tests/test_telegram.py
