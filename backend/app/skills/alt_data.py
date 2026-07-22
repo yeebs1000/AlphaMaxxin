@@ -39,22 +39,38 @@ ALT_SOURCES = {
 }
 
 
+def _hk_hot_ranks(tickers: list[str]) -> dict | None:
+    """East Money HK popularity board, fetched once per collect() — needs
+    no curated mapping, any .HK ticker can appear."""
+    if not any(t.upper().endswith(".HK") for t in tickers):
+        return None
+    try:
+        from ..data import akshare_provider as aks
+        return aks.hk_hot_rank()
+    except (ImportError, OfflineError):
+        return None
+
+
 def collect(tickers: list[str], sources: dict | None = None) -> dict:
-    """{by_ticker: {ticker: {wiki_views, app, jobs}}, not_covered: [...]}."""
+    """{by_ticker: {ticker: {wiki_views, app, jobs, hk_attention}},
+    not_covered: [...]}."""
     sources = sources or ALT_SOURCES
+    hot_ranks = _hk_hot_ranks(tickers)
     by_ticker, not_covered = {}, []
     for t in tickers:
         spec = sources.get(t)
-        if not spec:
-            not_covered.append(t)
-            continue
         entry = {}
-        if spec.get("wiki"):
-            entry["wiki_views"] = _safe(altdata.wiki_pageviews, spec["wiki"])
-        if spec.get("itunes_app"):
-            entry["app"] = _safe(altdata.itunes_app, spec["itunes_app"])
-        if spec.get("greenhouse"):
-            entry["jobs"] = _safe(altdata.greenhouse_jobs, spec["greenhouse"])
+        if spec:
+            if spec.get("wiki"):
+                entry["wiki_views"] = _safe(altdata.wiki_pageviews, spec["wiki"])
+            if spec.get("itunes_app"):
+                entry["app"] = _safe(altdata.itunes_app, spec["itunes_app"])
+            if spec.get("greenhouse"):
+                entry["jobs"] = _safe(altdata.greenhouse_jobs, spec["greenhouse"])
+        if hot_ranks and t.upper().endswith(".HK"):
+            rank = hot_ranks.get(t.split(".")[0].zfill(5))
+            if rank:
+                entry["hk_attention"] = {"rank": rank, "of": len(hot_ranks)}
         if any(entry.values()):
             by_ticker[t] = entry
         else:

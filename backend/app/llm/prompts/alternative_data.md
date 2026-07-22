@@ -18,6 +18,11 @@ A JSON envelope containing:
     marker, but there is no time series, so never claim growth from it.
   - `jobs` (companies on Greenhouse): {open_roles} — hiring breadth right
     now; expansion/contraction color only.
+  - `hk_attention` (.HK names): {rank, of} — the ticker's position on East
+    Money's HK retail popularity board (1 = hottest of ~100). This is the
+    venue where HK retail attention actually concentrates. Same caveat as
+    wiki_views: crowding/attention, not quality — a top-10 rank plus a
+    falling price often marks a crowded exit, not an entry.
 - `alt_data.not_covered`: tickers with no mapped source this run.
 - `technicals` (when present): price context for divergence checks.
 - `run_config`.

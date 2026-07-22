@@ -12,7 +12,10 @@ rather than crashing a report.
 """
 from functools import lru_cache
 
-from .base import guard_online
+from .base import DiskTTLCache, guard_online
+
+_hot_cache = DiskTTLCache()
+_HOT_RANK_TTL = 3600  # popularity board drifts intraday; hourly is plenty
 
 _PERIOD = {"1d": "daily", "1wk": "weekly"}
 _CCY = {"HK": "HKD", "CN": "CNY"}
@@ -69,6 +72,35 @@ def ohlcv(ticker: str, interval: str = "1d", range_: str = "1y") -> dict | None:
                  "volumes": _COLS["volume"]}.items()}
     except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
         return None
+
+
+def hk_hot_rank() -> dict | None:
+    """East Money's HK popularity board (guba.eastmoney.com/rank) via
+    akshare's stock_hk_hot_rank_em — the venue where HK retail attention
+    actually lives (X/Twitter was evaluated and rejected for this; see
+    HANDOFF). Keyless, no login cookie — unlike every Xueqiu wrapper.
+    → {"00700": 1, "01810": 7, ...} five-digit code → rank (1 = hottest,
+    top 100 only), or None when akshare is missing or the fetch fails.
+    # ponytail: column names are akshare's current Chinese headers —
+    # UNVERIFIED live (house rule: no live fetches during dev). Validate
+    # with one real call, same caveat as ohlcv() above."""
+    ak = _ak()
+    if ak is None:
+        return None
+
+    def fetch():
+        guard_online()  # inside fetch so warm cache entries work offline
+        try:
+            df = ak.stock_hk_hot_rank_em()
+            if df is None or df.empty:
+                return None
+            return {str(code).zfill(5): int(rank) for code, rank in
+                    zip(df["代码"], df["当前排名"])}
+        except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
+            return None
+
+    return _hot_cache.get_or_fetch("akshare_hot", "hk_top100",
+                                   _HOT_RANK_TTL, fetch)
 
 
 def quote(ticker: str) -> dict | None:

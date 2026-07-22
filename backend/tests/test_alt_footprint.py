@@ -37,6 +37,42 @@ def test_alt_data_all_sources_down_means_not_covered(monkeypatch):
     assert out["by_ticker"] == {} and out["not_covered"] == ["GRAB"]
 
 
+def test_alt_data_hk_attention_join(monkeypatch):
+    from app.data import akshare_provider
+    monkeypatch.setattr(akshare_provider, "hk_hot_rank",
+                        lambda: {"00700": 3, "01810": 41})
+    monkeypatch.setattr(altdata, "wiki_pageviews", lambda a: None)
+    out = alt_data.collect(["0700.HK", "1810.HK", "0005.HK", "MSFT"])
+    # 0700 has no curated ALT_SOURCES entry — attention alone covers it.
+    assert out["by_ticker"]["0700.HK"]["hk_attention"] == {"rank": 3, "of": 2}
+    assert out["by_ticker"]["1810.HK"]["hk_attention"]["rank"] == 41
+    # On the board? No → no attention field, and nothing else mapped → not covered.
+    assert "0005.HK" in out["not_covered"]
+    # Non-HK tickers never get the field.
+    assert "hk_attention" not in out["by_ticker"].get("MSFT", {})
+
+
+def test_alt_data_hk_attention_feed_down_degrades(monkeypatch):
+    from app.data import akshare_provider
+    monkeypatch.setattr(akshare_provider, "hk_hot_rank", lambda: None)
+    monkeypatch.setattr(altdata, "wiki_pageviews",
+                        lambda a: {"last_30d": 1, "prior_30d": 1, "growth_pct": 0.0})
+    out = alt_data.collect(["9988.HK"])
+    # Board down → wiki still covers it, no hk_attention key, no crash.
+    assert "hk_attention" not in out["by_ticker"]["9988.HK"]
+    assert out["by_ticker"]["9988.HK"]["wiki_views"]["growth_pct"] == 0.0
+
+
+def test_alt_data_no_hk_tickers_skips_board_fetch(monkeypatch):
+    from app.data import akshare_provider
+    calls = []
+    monkeypatch.setattr(akshare_provider, "hk_hot_rank",
+                        lambda: calls.append(1) or {})
+    monkeypatch.setattr(altdata, "wiki_pageviews", lambda a: None)
+    alt_data.collect(["MSFT"])
+    assert calls == []   # no .HK in the run → the board is never fetched
+
+
 def test_footprint_collect_with_fake_providers(monkeypatch):
     monkeypatch.setattr(devdata, "github_repo",
                         lambda r: {"stars": 90000, "forks": 8000,
