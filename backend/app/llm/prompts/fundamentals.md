@@ -18,6 +18,11 @@ A JSON envelope containing:
   - `short_interest`: {ratio_days, pct_float, shares} — high pct_float is
     both a bear thesis (someone is paying to bet against it) and squeeze
     fuel; read it against the growth/quality picture, never in isolation.
+  - `f_score` (when present): Piotroski F-score from annual statements —
+    `score` of `known` criteria passed (criteria with missing data are
+    excluded, not failed). score/known ≥ 2/3 = improving quality; ≤ 1/3 =
+    deteriorating. It measures year-over-year CHANGE — read it alongside
+    the level ratios, and never recompute or guess missing criteria.
 - `dividends` (when present): per-holding income view — trailing-12mo
   dividends per share, current yield, yield-on-cost, and ex-dividend dates
   within 30 days (`ex_dates_soon`, sorted). Mention imminent ex-dates and

@@ -91,10 +91,11 @@ class FakeYFinance:
     name = "yfinance"
 
     def __init__(self, fundamentals=None, option_chains=None, dividends=None,
-                 available=True):
+                 statements=None, available=True):
         self._fundamentals = fundamentals or {}
         self._chains = option_chains or {}
         self._dividends = dividends or {}
+        self._statements = statements or {}
         self.available = available
 
     def fundamentals(self, ticker):
@@ -105,6 +106,9 @@ class FakeYFinance:
 
     def dividends(self, ticker):
         return self._dividends.get(ticker)
+
+    def statements(self, ticker):
+        return self._statements.get(ticker)
 
 
 def make_registry(**overrides):

@@ -148,6 +148,11 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
             trends = registry.finnhub.recommendation_trends(t) if registry.finnhub.available else None
             snap = fund_skill.compute_fundamentals(t, yf_raw, fh, rec_trends=trends)
             if snap:
+                # Piotroski F-score from annual statements (30d-cached) — the
+                # YoY-improvement dimension the point-in-time ratios miss.
+                if registry.yfinance.available:
+                    snap["f_score"] = fund_skill.f_score(
+                        registry.yfinance.statements(symbol))
                 out["fundamentals"][t] = snap
 
     if "macro" in wanted:

@@ -5,11 +5,13 @@ from .technicals import rsi
 
 # Curated, liquid, NON-mega-cap US candidates (deliberately excludes the
 # trillion-dollar names so the screener has a real alternative to "buy more
-# NVDA/AAPL").
+# NVDA/AAPL"). Sector-spread: software, consumer, health, industrials, space.
 US_CANDIDATES = [
     "RBLX", "DKNG", "ETSY", "CELH", "FIVE", "WING", "AXON", "MOD",
     "SMAR", "PCTY", "CROX", "FND", "RUN", "ONON", "DUOL", "ENPH",
     "SFM", "CAKE", "ALGM", "PLNT", "ELF", "SKX",
+    "TOST", "CAVA", "BROS", "HIMS", "TMDX", "GTLB", "MNDY", "IOT",
+    "GLBE", "RKLB", "WRBY", "OSCR",
 ]
 SG_CANDIDATES = [
     "D05.SI", "O39.SI", "U11.SI", "C6L.SI", "Z74.SI", "C38U.SI",
