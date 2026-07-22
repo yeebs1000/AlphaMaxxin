@@ -47,6 +47,15 @@ def _akshare_ohlcv(ticker: str, interval: str) -> dict | None:
         return None
 
 
+def _stooq_ohlcv(ticker: str, interval: str) -> dict | None:
+    """Keyless US-only last resort when Yahoo is rate-limiting."""
+    try:
+        from . import stooq
+        return stooq.ohlcv(ticker, interval)
+    except (ImportError, OfflineError):
+        return None
+
+
 _MOOMOO_KTYPE = {"1d": "K_DAY", "1wk": "K_WEEK"}
 
 
@@ -70,4 +79,5 @@ def live_ohlcv(ticker: str, yahoo, interval: str = "1d", range_: str = "1y") -> 
             pass
     symbol, _ = yahoo.resolve_symbol(ticker)
     bars = yahoo.ohlcv(symbol, interval, range_) if symbol else None
-    return bars if bars else _akshare_ohlcv(ticker, interval)
+    return (bars or _akshare_ohlcv(ticker, interval)
+            or _stooq_ohlcv(ticker, interval))
