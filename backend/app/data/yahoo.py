@@ -7,8 +7,17 @@ No API key required.
 import urllib.parse
 
 from .base import (
-    DiskTTLCache, guard_online, http_get_json, TTL_OHLCV, TTL_QUOTE,
+    DiskTTLCache, RateLimiter, guard_online, http_get_json, TTL_OHLCV, TTL_QUOTE,
 )
+
+# Yahoo's chart API has no documented limit and no key — which is exactly
+# why it needs a self-imposed one. Unlike Finnhub/Alpha Vantage (both
+# rate-limited already), nothing here previously bounded request volume;
+# growing the screener universe from ~35 to 500+ candidates per region
+# turns that gap into a real IP-ban risk. 60/min is conservative — TTL_OHLCV
+# caches for 6h, so this only bites on a cold cache, and one shared instance
+# means every caller (screener, scanner, live_quote) is bounded together.
+_LIMITER = RateLimiter(60, 60.0)
 
 # Portfolio ticker aliases → Yahoo symbols (carried over from runner.py).
 SGX_TICKER_MAP = {
@@ -45,6 +54,7 @@ class YahooProvider:
 
     def _fetch_ohlcv(self, ticker: str, interval: str, range_: str) -> dict | None:
         guard_online()  # outside the try — the offline tripwire must not be swallowed
+        _LIMITER.acquire()
         try:
             q = urllib.parse.quote(ticker)
             url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{q}"
@@ -76,6 +86,7 @@ class YahooProvider:
 
     def _fetch_quote(self, symbol: str) -> dict | None:
         guard_online()
+        _LIMITER.acquire()
         try:
             q = urllib.parse.quote(symbol)
             data = http_get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{q}",

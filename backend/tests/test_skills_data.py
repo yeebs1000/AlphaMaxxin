@@ -114,6 +114,21 @@ def test_screener_caps_per_market():
     assert len(out["SG"]) == 3
 
 
+def test_candidates_for_falls_back_when_dynamic_universe_unavailable():
+    # ALPHAMAXXIN_OFFLINE=1 (conftest) makes the dynamic fetch raise —
+    # candidates_for must catch it and return the curated list, never crash.
+    assert screener.candidates_for("US") == screener.US_CANDIDATES
+    assert screener.candidates_for("HK") == screener.HK_CANDIDATES
+    assert screener.candidates_for("SG") == screener.SG_CANDIDATES
+    assert screener.candidates_for("JP") == screener.JP_CANDIDATES  # no dynamic source
+
+
+def test_candidates_for_prefers_dynamic_universe_when_available(monkeypatch):
+    from app.data import index_constituents as idx
+    monkeypatch.setattr(idx, "us_universe", lambda: ["ZZZ", "YYY"])
+    assert screener.candidates_for("US") == ["ZZZ", "YYY"]
+
+
 # ---------------------------------------------------------------------------
 # catalysts
 # ---------------------------------------------------------------------------

@@ -1,11 +1,17 @@
 """Broad-market screening universe — port of market_screener.py with the
 fetch decoupled (provider passed in) and a momentum/RSI rank added.
+
+US/HK/SG pull their candidate list from real index constituents
+(data/index_constituents.py — S&P 500+400, Hang Seng+TECH, STI) when that
+fetch succeeds; the lists below are the fallback when it doesn't (offline,
+Wikipedia parse failure) — kept curated and liquid so a scan never goes
+empty. JP/KR stay curated-only for now (no dynamic source wired yet).
 """
 from .technicals import rsi
 
-# Curated, liquid, NON-mega-cap US candidates (deliberately excludes the
-# trillion-dollar names so the screener has a real alternative to "buy more
-# NVDA/AAPL"). Sector-spread: software, consumer, health, industrials, space.
+# Fallback candidates — see module docstring. Sector-spread: software,
+# consumer, health, industrials, space (deliberately excludes trillion-
+# dollar names so there's a real alternative to "buy more NVDA/AAPL").
 US_CANDIDATES = [
     "RBLX", "DKNG", "ETSY", "CELH", "FIVE", "WING", "AXON", "MOD",
     "SMAR", "PCTY", "CROX", "FND", "RUN", "ONON", "DUOL", "ENPH",
@@ -46,6 +52,27 @@ CANDIDATE_LISTS = {
 _MAX_YOY_PCT_US = 100.0  # exclude US names that already ran >100% YoY
 _MAX_PER_MARKET = 6
 
+# Regions with a dynamic (real-index) universe source, mapped to the
+# index_constituents function that fetches it.
+_DYNAMIC_SOURCE = {"US": "us_universe", "HK": "hk_universe", "SG": "sg_universe"}
+
+
+def candidates_for(region: str) -> list[str]:
+    """The region's candidate list — dynamic index constituents when that
+    fetch succeeds, else the curated fallback. Never raises: any failure
+    (offline, missing pandas/lxml, a changed Wikipedia table) just falls
+    through to CANDIDATE_LISTS, so a scan never comes back empty."""
+    source = _DYNAMIC_SOURCE.get(region)
+    if source:
+        try:
+            from ..data import index_constituents as idx
+            dynamic = getattr(idx, source)()
+            if dynamic:
+                return dynamic
+        except Exception:  # noqa: BLE001 — dynamic universe is best-effort
+            pass
+    return CANDIDATE_LISTS.get(region, [])
+
 
 def candidate_snapshot(ticker: str, bars: dict | None) -> dict | None:
     """One candidate row from pre-fetched daily bars: last close, trailing
@@ -78,7 +105,7 @@ def screen(yahoo, regions: list | None = None,
         # Rank the whole candidate list, THEN cap — capping before ranking
         # (the old behavior) made "top N by momentum" actually mean "first N
         # in list order". Bars are TTL-cached, so the wider fetch is cheap.
-        for ticker in CANDIDATE_LISTS.get(region, []):
+        for ticker in candidates_for(region):
             snap = candidate_snapshot(ticker, yahoo.ohlcv(ticker, "1d", "1y"))
             if snap and (region != "US" or snap["yoy_pct"] <= _MAX_YOY_PCT_US):
                 out[region].append(snap)

@@ -20,6 +20,14 @@ yfinance
 # the app runs fine without it, the fallback just stays inactive.
 akshare
 
+# pandas/lxml — table parsing for the screener's dynamic universe
+# (data/index_constituents.py: S&P 500/400, Hang Seng/TECH, STI off their
+# Wikipedia pages). Already pulled in transitively by akshare/moomoo-api;
+# declared explicitly since the screener degrades to its curated fallback
+# list without them, silently, and that's worth being able to fix.
+pandas
+lxml
+
 # ML Alpha lens — trains/loads the offline gradient-boosting model. Optional:
 # the lens stays disabled if these aren't installed. joblib ships with
 # scikit-learn but is pinned explicitly since ml_model.py imports it directly.
