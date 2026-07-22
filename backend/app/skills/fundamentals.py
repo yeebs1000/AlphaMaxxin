@@ -6,10 +6,13 @@ from ..data.base import to_number
 
 def compute_fundamentals(ticker: str, yf_raw: dict | None,
                          finnhub_metrics: dict | None = None,
-                         rec_trends: list | None = None) -> dict | None:
+                         rec_trends: list | None = None,
+                         akshare_raw: dict | None = None) -> dict | None:
     """FundamentalsSnapshot from whichever raw source is available, or None.
     yf_raw is the flat dict from YFinanceProvider.fundamentals();
     finnhub_metrics is the response of /stock/metric (metric=all);
+    akshare_raw is the flat dict from akshare_provider.hk_fundamentals (HK
+    names where yfinance is thin — same shape as yf_raw);
     rec_trends is finnhub's monthly recommendation counts (newest first)."""
     snap = None
     if yf_raw:
@@ -18,6 +21,9 @@ def compute_fundamentals(ticker: str, yf_raw: dict | None,
     elif finnhub_metrics:
         snap = _from_finnhub(ticker, finnhub_metrics)
         snap["source"] = "finnhub"
+    elif akshare_raw:
+        snap = _from_yfinance(ticker, akshare_raw)   # same flat shape
+        snap["source"] = "akshare"
     if snap and rec_trends:
         snap["analyst"]["trend"] = _analyst_trend(rec_trends)
     return snap

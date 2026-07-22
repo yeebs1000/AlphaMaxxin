@@ -12,10 +12,11 @@ rather than crashing a report.
 """
 from functools import lru_cache
 
-from .base import DiskTTLCache, guard_online
+from .base import DiskTTLCache, TTL_STATEMENTS, guard_online, to_number
 
 _hot_cache = DiskTTLCache()
 _HOT_RANK_TTL = 3600  # popularity board drifts intraday; hourly is plenty
+_fund_cache = DiskTTLCache()
 
 _PERIOD = {"1d": "daily", "1wk": "weekly"}
 _CCY = {"HK": "HKD", "CN": "CNY"}
@@ -101,6 +102,113 @@ def hk_hot_rank() -> dict | None:
 
     return _hot_cache.get_or_fetch("akshare_hot", "hk_top100",
                                    _HOT_RANK_TTL, fetch)
+
+
+# East Money HK F10 (stock_financial_hk_analysis_indicator_em) → our fields.
+# Verified against live 00700/02015 output: stable English column codes (not
+# the fragile Chinese line-item names of the raw report_em endpoint), values
+# are percentages where noted. Currency-agnostic — everything used here is a
+# ratio, so HKD-vs-CNY reporting doesn't matter.
+def _hk_pct(row: dict, key: str):
+    """Percentage field → fraction (13.86 → 0.1386), or None."""
+    v = to_number(row.get(key))
+    return v / 100.0 if v is not None else None
+
+
+def _hk_raw(rows: list[dict]) -> dict | None:
+    """Latest annual row → the flat 'raw' dict compute_fundamentals expects
+    (same shape as yfinance's sanitize_info output). Only the fields the
+    indicator table actually carries — the rest stay absent (→ None), never
+    guessed."""
+    if not rows:
+        return None
+    r = rows[0]
+    raw = {
+        "name": r.get("SECURITY_NAME_ABBR"),
+        "currency": r.get("CURRENCY"),
+        "rev_yoy": _hk_pct(r, "OPERATE_INCOME_YOY"),
+        "eps_yoy": _hk_pct(r, "HOLDER_PROFIT_YOY"),   # net-profit YoY proxy
+        "gross_margin": _hk_pct(r, "GROSS_PROFIT_RATIO"),
+        "net_margin": _hk_pct(r, "NET_PROFIT_RATIO"),
+        "current_ratio": to_number(r.get("CURRENT_RATIO")),
+    }
+    # True EPS YoY from consecutive basic-EPS when both are present — more
+    # honest than the net-profit proxy (captures dilution).
+    if len(rows) > 1:
+        e0, e1 = to_number(r.get("BASIC_EPS")), to_number(rows[1].get("BASIC_EPS"))
+        if e0 is not None and e1:
+            raw["eps_yoy"] = e0 / e1 - 1
+    return {k: v for k, v in raw.items() if v is not None} or None
+
+
+def _hk_years(rows: list[dict]) -> list[dict]:
+    """Indicator rows → the statement-year shape f_score() consumes, deriving
+    absolutes from the ratios (assets = net_income / ROA, etc.). Missing
+    inputs stay absent so f_score drops those criteria rather than failing."""
+    years = []
+    for r in rows:
+        ni = to_number(r.get("HOLDER_PROFIT"))
+        rev = to_number(r.get("OPERATE_INCOME"))
+        gross = to_number(r.get("GROSS_PROFIT"))
+        roa = to_number(r.get("ROA"))          # percent
+        ocf_sales = to_number(r.get("OCF_SALES"))   # percent
+        debt_asset = to_number(r.get("DEBT_ASSET_RATIO"))  # percent
+        eps = to_number(r.get("BASIC_EPS"))
+        assets = ni / (roa / 100) if (ni is not None and roa) else None
+        y = {"period": str(r.get("REPORT_DATE") or "")[:10]}
+        if ni is not None:
+            y["net_income"] = ni
+        if rev is not None:
+            y["revenue"] = rev
+        if rev is not None and gross is not None:
+            y["cogs"] = rev - gross
+        if assets is not None:
+            y["total_assets"] = assets
+            if debt_asset is not None:
+                y["total_debt"] = debt_asset / 100 * assets
+        if rev is not None and ocf_sales is not None:
+            y["cfo"] = ocf_sales / 100 * rev
+        if ni is not None and eps:
+            y["shares"] = ni / eps
+        # CURRENT_RATIO carries the liquidity delta directly; express as a
+        # ratio (CA over 1) so f_score's current_ratio comparison works.
+        cr = to_number(r.get("CURRENT_RATIO"))
+        if cr is not None:
+            y["current_assets"], y["current_liabilities"] = cr, 1.0
+        if len(y) > 1:
+            years.append(y)
+    return years
+
+
+def hk_fundamentals(ticker: str) -> dict | None:
+    """HK fundamentals from East Money's F10 indicator table — the coverage
+    yfinance thins out on for HK mid/small caps. Returns
+    {"raw": <flat dict>, "years": [<f_score rows>]} or None. 30-day cached
+    (annual data). Keyless, no login cookie.
+    # ponytail: reuses f_score()'s year shape rather than a parallel HK
+    # scorer — the akshare-specific knowledge is only in the row→field map."""
+    ak = _ak()
+    if ak is None or _market(ticker) != "HK":
+        return None
+
+    def fetch():
+        guard_online()
+        try:
+            code = _code(ticker, "HK")
+            df = ak.stock_financial_hk_analysis_indicator_em(symbol=code, indicator="年度")
+            if df is None or df.empty:
+                return None
+            rows = sorted(df.to_dict("records"),
+                          key=lambda r: str(r.get("REPORT_DATE") or ""), reverse=True)
+            raw = _hk_raw(rows)
+            if raw is None:
+                return None
+            raw["ticker"] = ticker
+            return {"raw": raw, "years": _hk_years(rows)}
+        except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
+            return None
+
+    return _fund_cache.get_or_fetch("akshare_hk_fund", ticker, TTL_STATEMENTS, fetch)
 
 
 def quote(ticker: str) -> dict | None:

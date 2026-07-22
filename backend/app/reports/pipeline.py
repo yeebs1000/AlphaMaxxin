@@ -141,18 +141,25 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
     if "fundamentals" in wanted:
         emit("skills", "Computing fundamentals", 28)
         out["fundamentals"] = {}
+        from ..data import akshare_provider as aks
         for t in tickers:
             symbol = fetched["symbols"].get(t, t)
             yf_raw = registry.yfinance.fundamentals(symbol) if registry.yfinance.available else None
             fh = registry.finnhub.metrics(t) if (yf_raw is None and registry.finnhub.available) else None
             trends = registry.finnhub.recommendation_trends(t) if registry.finnhub.available else None
-            snap = fund_skill.compute_fundamentals(t, yf_raw, fh, rec_trends=trends)
+            # HK names thin out on yfinance/Finnhub — East Money F10 backfills
+            # both the snapshot and the F-score (30d-cached, keyless).
+            hk = aks.hk_fundamentals(t) if (yf_raw is None and fh is None) else None
+            snap = fund_skill.compute_fundamentals(
+                t, yf_raw, fh, rec_trends=trends,
+                akshare_raw=(hk or {}).get("raw"))
             if snap:
                 # Piotroski F-score from annual statements (30d-cached) — the
                 # YoY-improvement dimension the point-in-time ratios miss.
-                if registry.yfinance.available:
-                    snap["f_score"] = fund_skill.f_score(
-                        registry.yfinance.statements(symbol))
+                stmts = (registry.yfinance.statements(symbol)
+                         if registry.yfinance.available else None)
+                snap["f_score"] = (fund_skill.f_score(stmts)
+                                   or fund_skill.f_score((hk or {}).get("years")))
                 out["fundamentals"][t] = snap
 
     if "macro" in wanted:
