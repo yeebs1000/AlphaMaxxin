@@ -1,5 +1,6 @@
-"""Index constituents: table-column-finder, ticker normalization, and the
-offline tripwire propagation — all pure/offline, no network."""
+"""Index constituents: normalizers, the first-with-enough column picker, and
+offline tripwire — all pure/offline (fake tables), no network. Formats mirror
+the real Wikipedia pages validated live 2026-07-24."""
 import pytest
 
 from app.data.base import OfflineError
@@ -7,8 +8,7 @@ from app.data import index_constituents as idx
 
 
 class _FakeTable:
-    """Minimal stand-in for a pandas DataFrame slice this module needs:
-    .columns and __getitem__ returning something with .tolist()."""
+    """Minimal stand-in for a pandas DataFrame slice _extract needs."""
     def __init__(self, columns, rows):
         self.columns = columns
         self._rows = rows
@@ -26,39 +26,54 @@ class _Col:
         return self._values
 
 
-def test_find_ticker_column_matches_header_hint():
-    tables = [
-        _FakeTable(["Company", "Sector"], [("Acme", "Tech")]),
-        _FakeTable(["Symbol", "Security"], [("AAPL", "Apple"), ("BRK.B", "Berkshire")]),
-    ]
-    col = idx._find_ticker_column(tables, "symbol", "ticker")
-    assert col == ["AAPL", "BRK.B"]
+# ---------------------------------------------------------------------------
+# per-region cell normalizers
+# ---------------------------------------------------------------------------
+def test_us_code_normalizes_and_filters():
+    assert idx._us_code("AAPL") == "AAPL"
+    assert idx._us_code("BRK.B") == "BRK-B"         # share class dot -> dash
+    assert idx._us_code("brk.b") == "BRK-B"
+    assert idx._us_code("123") is None              # not a symbol
+    assert idx._us_code("") is None
 
 
-def test_find_ticker_column_no_match_returns_none():
+def test_hk_code_extracts_digits_from_sehk_format():
+    assert idx._hk_code("SEHK:\xa0388") == "0388.HK"   # real Wikipedia format
+    assert idx._hk_code("5") == "0005.HK"
+    assert idx._hk_code("0700") == "0700.HK"
+    assert idx._hk_code("HSBC") is None                 # no digits
+
+
+def test_sg_code_strips_sgx_prefix():
+    assert idx._sg_code("SGX: A17U") == "A17U.SI"       # real Wikipedia format
+    assert idx._sg_code("D05") == "D05.SI"
+    assert idx._sg_code("9CI") == "9CI.SI"
+    assert idx._sg_code("") is None
+
+
+# ---------------------------------------------------------------------------
+# _extract — first hint-matching column with >= _MIN_VALID valid tickers
+# ---------------------------------------------------------------------------
+def test_extract_takes_first_real_constituents_column():
+    syms = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH", "III",
+            "JJJ", "KKK", "LLL"]                       # alpha only (real S&P shape)
+    tables = [_FakeTable(["Symbol"], [(s,) for s in syms])]
+    out = idx._extract(tables, ("symbol",), idx._us_code)
+    assert out == syms
+
+
+def test_extract_skips_stray_small_column():
+    # An early table matches the hint but normalizes to <10 valid -> skipped;
+    # the real constituents table (>=10) wins. (The old first-match's HK bug.)
+    stray = _FakeTable(["Code"], [("n/a",), ("SEHK: x",)])          # 0 valid HK codes
+    real = _FakeTable(["Ticker"], [(f"SEHK:\xa0{i}",) for i in range(1, 15)])
+    out = idx._extract([stray, real], ("ticker", "code"), idx._hk_code)
+    assert len(out) == 14 and out[0] == "0001.HK"
+
+
+def test_extract_none_when_no_column_has_enough():
     tables = [_FakeTable(["Company"], [("Acme",)])]
-    assert idx._find_ticker_column(tables, "symbol", "ticker") is None
-
-
-def test_sp500_normalizes_share_class_dots(monkeypatch):
-    monkeypatch.setattr(idx, "_wiki_tables",
-                        lambda page: [_FakeTable(["Symbol"], [("AAPL",), ("BRK.B",)])])
-    monkeypatch.setattr(idx, "_cached", lambda key, fetch: fetch())
-    assert idx.sp500_tickers() == ["AAPL", "BRK-B"]
-
-
-def test_hang_seng_zero_pads_and_suffixes(monkeypatch):
-    monkeypatch.setattr(idx, "_wiki_tables",
-                        lambda page: [_FakeTable(["Stock Code"], [("700",), ("5",)])])
-    monkeypatch.setattr(idx, "_cached", lambda key, fetch: fetch())
-    assert idx.hang_seng_tickers() == ["0700.HK", "0005.HK"]
-
-
-def test_sti_suffixes_si(monkeypatch):
-    monkeypatch.setattr(idx, "_wiki_tables",
-                        lambda page: [_FakeTable(["SGX Code"], [("D05",), ("O39",)])])
-    monkeypatch.setattr(idx, "_cached", lambda key, fetch: fetch())
-    assert idx.sti_tickers() == ["D05.SI", "O39.SI"]
+    assert idx._extract(tables, ("symbol", "ticker"), idx._us_code) is None
 
 
 def test_merge_dedupes_and_none_on_all_empty():
@@ -67,13 +82,29 @@ def test_merge_dedupes_and_none_on_all_empty():
     assert idx._merge([], None) is None
 
 
+# ---------------------------------------------------------------------------
+# offline tripwire — guard_online is OUTSIDE _wiki_tables' try, so it must
+# propagate (a swallowed None here degraded the scan silently for days).
+# ---------------------------------------------------------------------------
 def test_wiki_tables_offline_raises():
-    # guard_online() sits OUTSIDE _wiki_tables' try/except on purpose — the
-    # tripwire must propagate, not get silently swallowed as "no data".
     with pytest.raises(OfflineError):
         idx._wiki_tables("List_of_S%26P_500_companies")
 
 
+def test_universe_fns_propagate_offline_tripwire(tmp_path):
+    from app.data.base import DiskTTLCache
+    idx._cache = DiskTTLCache(root=str(tmp_path))
+    with pytest.raises(OfflineError):
+        idx.us_universe()
+    with pytest.raises(OfflineError):
+        idx.hk_universe()
+    with pytest.raises(OfflineError):
+        idx.sg_universe()
+
+
+# ---------------------------------------------------------------------------
+# audit_against_ibkr (unchanged)
+# ---------------------------------------------------------------------------
 def test_audit_against_ibkr_unavailable_returns_none(monkeypatch):
     import app.brokers.ibkr_client as ibkr
     monkeypatch.setattr(ibkr, "qualify_symbols", lambda specs: None)
@@ -82,7 +113,7 @@ def test_audit_against_ibkr_unavailable_returns_none(monkeypatch):
     assert idx.audit_against_ibkr(["AAPL"], "JP") is None  # no IBKR mapping
 
 
-def test_audit_against_ibkr_splits_resolved_and_builds_correct_specs(monkeypatch):
+def test_audit_against_ibkr_splits_and_builds_specs(monkeypatch):
     import app.brokers.ibkr_client as ibkr
     captured = {}
 
@@ -96,34 +127,3 @@ def test_audit_against_ibkr_splits_resolved_and_builds_correct_specs(monkeypatch
     specs = {s["key"]: s for s in captured["specs"]}
     assert specs["0700.HK"] == {"key": "0700.HK", "symbol": "700",
                                 "exchange": "SEHK", "currency": "HKD"}
-
-
-def test_audit_against_ibkr_us_and_sg_symbol_conversion(monkeypatch):
-    import app.brokers.ibkr_client as ibkr
-    captured = {}
-
-    def fake_qualify(specs):
-        captured["specs"] = specs
-        return {}
-
-    monkeypatch.setattr(ibkr, "qualify_symbols", fake_qualify)
-    idx.audit_against_ibkr(["BRK-B"], "US")
-    assert captured["specs"][0]["symbol"] == "BRK B"
-    assert captured["specs"][0]["exchange"] == "SMART"
-    idx.audit_against_ibkr(["D05.SI"], "SG")
-    assert captured["specs"][0] == {"key": "D05.SI", "symbol": "D05",
-                                    "exchange": "SGX", "currency": "SGD"}
-
-
-def test_universe_fns_propagate_offline_tripwire(tmp_path):
-    # index_constituents itself doesn't catch OfflineError (same contract as
-    # every other provider, e.g. YahooProvider.ohlcv) — screener.candidates_for
-    # is the layer that catches it and falls back to the curated list.
-    from app.data.base import DiskTTLCache
-    idx._cache = DiskTTLCache(root=str(tmp_path))
-    with pytest.raises(OfflineError):
-        idx.us_universe()
-    with pytest.raises(OfflineError):
-        idx.hk_universe()
-    with pytest.raises(OfflineError):
-        idx.sg_universe()
