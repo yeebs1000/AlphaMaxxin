@@ -7,6 +7,8 @@ fetch succeeds; the lists below are the fallback when it doesn't (offline,
 Wikipedia parse failure) — kept curated and liquid so a scan never goes
 empty. JP/KR stay curated-only for now (no dynamic source wired yet).
 """
+import sys
+
 from .technicals import rsi
 
 # Fallback candidates — see module docstring. Sector-spread: software,
@@ -69,8 +71,16 @@ def candidates_for(region: str) -> list[str]:
             dynamic = getattr(idx, source)()
             if dynamic:
                 return dynamic
-        except Exception:  # noqa: BLE001 — dynamic universe is best-effort
-            pass
+            # Fetch succeeded but returned nothing (a normalizer rejecting
+            # every cell raises no exception) — LOG it. A silent fall to the
+            # tiny curated list is exactly what hid the read_html bug for days.
+            print(f"[screener] {region} dynamic universe empty — using curated "
+                  f"fallback ({len(CANDIDATE_LISTS.get(region, []))} names)",
+                  file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 — dynamic universe is best-effort
+            print(f"[screener] {region} dynamic universe failed "
+                  f"({type(e).__name__}: {e}) — using curated fallback",
+                  file=sys.stderr)
     return CANDIDATE_LISTS.get(region, [])
 
 
@@ -94,23 +104,43 @@ def candidate_snapshot(ticker: str, bars: dict | None) -> dict | None:
     }
 
 
+_OVERSOLD_RSI = 35   # channel cutoff — wide enough to feed gate's rsi<30 setup
+
+
 def screen(yahoo, regions: list | None = None,
            max_per_market: int = _MAX_PER_MARKET) -> dict:
     """{"<REGION>": [snapshot, ...]} using the given yahoo provider (real or
-    fake), each region capped and ranked by 3-month momentum. US names with
-    >100% trailing return are excluded, same rule as v1."""
+    fake). Each region returns TWO channels, deduped: the top momentum
+    leaders AND the most-oversold names (RSI < 35). US names with >100%
+    trailing return are excluded, same rule as v1.
+
+    The oversold channel exists because a momentum-only top-N structurally
+    starves the rsi_reversion setup (the one backtested edge): oversold names
+    have weak recent momentum and never make the leader list, so the gate
+    would only ever see the persistent productive_trend state → the same
+    names every day. RSI is already computed per candidate, so this adds zero
+    fetches. Fundamentals "high" still filters junk downstream."""
     regions = regions or list(CANDIDATE_LISTS.keys())
     out = {region: [] for region in regions}
     for region in regions:
-        # Rank the whole candidate list, THEN cap — capping before ranking
-        # (the old behavior) made "top N by momentum" actually mean "first N
-        # in list order". Bars are TTL-cached, so the wider fetch is cheap.
+        # Bars are TTL-cached, so fetching the whole candidate list is cheap.
+        snaps = []
         for ticker in candidates_for(region):
             snap = candidate_snapshot(ticker, yahoo.ohlcv(ticker, "1d", "1y"))
             if snap and (region != "US" or snap["yoy_pct"] <= _MAX_YOY_PCT_US):
-                out[region].append(snap)
-        out[region].sort(key=lambda s: s["mom_3m_pct"], reverse=True)
-        del out[region][max_per_market:]
-        for rank, snap in enumerate(out[region], 1):
+                snaps.append(snap)
+        leaders = sorted(snaps, key=lambda s: s["mom_3m_pct"],
+                         reverse=True)[:max_per_market]
+        for rank, snap in enumerate(leaders, 1):
             snap["momentum_rank"] = rank
+        # Rotating channel: the most-oversold names not already in leaders.
+        # NB: rsi14 can be 0.0 (fully oversold) — a truthiness check (`or 100`)
+        # would wrongly exclude the MOST oversold names; test explicitly None.
+        seen = {s["ticker"] for s in leaders}
+        oversold = sorted((s for s in snaps
+                           if s.get("rsi14") is not None
+                           and s["rsi14"] < _OVERSOLD_RSI
+                           and s["ticker"] not in seen),
+                          key=lambda s: s["rsi14"])[:max_per_market]
+        out[region] = leaders + oversold
     return out

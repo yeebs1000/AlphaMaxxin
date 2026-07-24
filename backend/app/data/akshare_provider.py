@@ -10,9 +10,17 @@ rather than crashing a report.
 # headers — validate with one real online fetch after `pip install akshare`.
 # Offline tests cover symbol mapping + fallback routing, not the live parse.
 """
+import sys
 from functools import lru_cache
 
 from .base import DiskTTLCache, TTL_STATEMENTS, guard_online, to_number
+
+
+def _log(where: str, ticker: str, e: Exception) -> None:
+    """Surface an akshare parse/fetch failure instead of swallowing it — a
+    silent None here (unverified Chinese columns, last-resort HK/CN fallback)
+    means zero coverage indistinguishable from 'akshare not installed'."""
+    print(f"[akshare] {where} {ticker}: {type(e).__name__}: {e}", file=sys.stderr)
 
 _hot_cache = DiskTTLCache()
 _HOT_RANK_TTL = 3600  # popularity board drifts intraday; hourly is plenty
@@ -71,7 +79,8 @@ def ohlcv(ticker: str, interval: str = "1d", range_: str = "1y") -> dict | None:
                 {"opens": _COLS["open"], "closes": _COLS["close"],
                  "highs": _COLS["high"], "lows": _COLS["low"],
                  "volumes": _COLS["volume"]}.items()}
-    except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
+    except Exception as e:  # noqa: BLE001 — any akshare/pandas surprise → no data
+        _log("ohlcv", ticker, e)
         return None
 
 
@@ -97,7 +106,8 @@ def hk_hot_rank() -> dict | None:
                 return None
             return {str(code).zfill(5): int(rank) for code, rank in
                     zip(df["代码"], df["当前排名"])}
-        except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
+        except Exception as e:  # noqa: BLE001 — any akshare/pandas surprise → no data
+            _log("hk_hot_rank", "top100", e)
             return None
 
     return _hot_cache.get_or_fetch("akshare_hot", "hk_top100",
@@ -205,7 +215,8 @@ def hk_fundamentals(ticker: str) -> dict | None:
                 return None
             raw["ticker"] = ticker
             return {"raw": raw, "years": _hk_years(rows)}
-        except Exception:  # noqa: BLE001 — any akshare/pandas surprise → no data
+        except Exception as e:  # noqa: BLE001 — any akshare/pandas surprise → no data
+            _log("hk_fundamentals", ticker, e)
             return None
 
     return _fund_cache.get_or_fetch("akshare_hk_fund", ticker, TTL_STATEMENTS, fetch)

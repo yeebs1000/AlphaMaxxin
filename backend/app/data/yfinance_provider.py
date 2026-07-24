@@ -54,6 +54,39 @@ _NUMERIC_FIELDS = {
 }
 
 
+def parse_statements(frames: dict, stmt_rows: dict) -> list | None:
+    """Pure parse of {kind: yfinance DataFrame} → statement-year rows (newest
+    first). Kept out of the network method so it's unit-testable offline (the
+    offline tripwire otherwise hides every parser from CI — the systemic gap
+    that let the read_html bug live for days). Skips non-dated columns (a
+    string 'TTM' column, which some yfinance versions include, would
+    AttributeError on col.date())."""
+    years: dict = {}  # period iso date -> {field: value}
+    for kind, df in frames.items():
+        if df is None or getattr(df, "empty", True):
+            continue
+        for label, field in stmt_rows.get(kind, {}).items():
+            if label not in df.index:
+                continue
+            for col in df.columns:
+                value = to_number(df.loc[label, col])
+                if value is None or not hasattr(col, "date"):
+                    continue
+                years.setdefault(str(col.date()), {})[field] = value
+    rows = []
+    for period in sorted(years, reverse=True):
+        row = {"period": period, **years[period]}
+        # Diluted-average shares (income) preferred; balance-sheet share count
+        # fills the gap when the income row is missing.
+        row.setdefault("shares", row.pop("shares_balance", None))
+        row.pop("shares_balance", None)
+        if row.get("shares") is None:
+            row.pop("shares", None)
+        if len(row) > 1:
+            rows.append(row)
+    return rows or None
+
+
 def sanitize_info(ticker: str, info: dict) -> dict | None:
     """Extract _INFO_FIELDS from a raw yfinance .info dict, coercing every
     numeric field through to_number() — yfinance's most common failure mode
@@ -159,37 +192,18 @@ class YFinanceProvider:
 
     def _fetch_statements(self, ticker: str) -> list | None:
         guard_online()
+        # Parse is INSIDE the try — pipeline.py calls statements() unguarded,
+        # so a yfinance column-shape drift must degrade to None, not crash the
+        # fundamentals stage. The parse is a separate pure function so it's
+        # unit-testable offline (the tripwire otherwise hides it from CI).
         try:
             import yfinance as yf
             t = yf.Ticker(ticker)
-            frames = {"income": t.income_stmt, "balance": t.balance_sheet,
-                      "cashflow": t.cashflow}
+            return parse_statements({"income": t.income_stmt,
+                                     "balance": t.balance_sheet,
+                                     "cashflow": t.cashflow}, self._STMT_ROWS)
         except Exception:
             return None
-        years: dict = {}  # period iso date -> {field: value}
-        for kind, df in frames.items():
-            if df is None or getattr(df, "empty", True):
-                continue
-            for label, field in self._STMT_ROWS[kind].items():
-                if label not in df.index:
-                    continue
-                for col in df.columns:
-                    value = to_number(df.loc[label, col])
-                    if value is None:
-                        continue
-                    years.setdefault(str(col.date()), {})[field] = value
-        rows = []
-        for period in sorted(years, reverse=True):
-            row = {"period": period, **years[period]}
-            # Diluted-average shares (income) preferred; balance-sheet share
-            # count fills the gap when the income row is missing.
-            row.setdefault("shares", row.pop("shares_balance", None))
-            row.pop("shares_balance", None)
-            if row.get("shares") is None:
-                row.pop("shares", None)
-            if len(row) > 1:
-                rows.append(row)
-        return rows or None
 
     def option_chain(self, ticker: str) -> dict | None:
         """Nearest-expiry option chain (US tickers only):

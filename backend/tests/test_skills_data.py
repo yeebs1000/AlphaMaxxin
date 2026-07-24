@@ -111,7 +111,28 @@ def test_screener_excludes_us_runners_and_ranks():
 def test_screener_caps_per_market():
     yahoo = FakeYahoo(ohlcv_data={t: _bars(100, 120) for t in screener.SG_CANDIDATES})
     out = screener.screen(yahoo, regions=["SG"], max_per_market=3)
+    # 3 momentum leaders; the rising bars aren't oversold so no extra channel.
     assert len(out["SG"]) == 3
+
+
+def test_screener_oversold_channel_surfaces_low_rsi_names(monkeypatch):
+    # Two rising leaders + one faller. With max_per_market=2 the faller can't
+    # be a momentum leader, but the oversold channel must surface it so the
+    # gate's rsi_reversion setup (the measured edge) can ever fire. Control the
+    # universe directly — candidates_for() would hit the disk-cached real list.
+    monkeypatch.setattr(screener, "candidates_for",
+                        lambda region: ["RBLX", "ETSY", "CROX"])
+    yahoo = FakeYahoo(ohlcv_data={
+        "RBLX": _bars(100, 150),   # rising -> leader, high RSI
+        "ETSY": _bars(100, 130),   # rising -> leader
+        "CROX": _bars(150, 100),   # falling -> oversold (low RSI), weak momentum
+    })
+    out = screener.screen(yahoo, regions=["US"], max_per_market=2)
+    tickers = [s["ticker"] for s in out["US"]]
+    assert "CROX" in tickers                          # surfaced via oversold channel
+    crox = next(s for s in out["US"] if s["ticker"] == "CROX")
+    assert crox["rsi14"] < 35 and "momentum_rank" not in crox  # not a leader
+    assert out["US"][0]["momentum_rank"] == 1          # leaders still ranked
 
 
 def test_candidates_for_falls_back_when_dynamic_universe_unavailable():

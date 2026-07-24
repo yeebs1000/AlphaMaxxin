@@ -43,9 +43,13 @@ scripts/*.log
 # to run on this machine; kept untracked here.
 backend/app/notify/
 backend/app/scanner.py
+backend/app/scan_digest.py
 backend/app/api/scanner.py
 backend/app/skills/chokepoints.py
 backend/app/digest.py
 backend/app/watcher.py
 backend/tests/test_scanner.py
+backend/tests/test_scan_digest.py
 backend/tests/test_telegram.py
+scripts/scan_digest_*.cmd
+scripts/scan_digest_*.vbs
