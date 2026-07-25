@@ -44,6 +44,8 @@ scripts/*.log
 backend/app/notify/
 backend/app/scanner.py
 backend/app/scan_digest.py
+backend/app/observations.py
+backend/tests/test_observations.py
 backend/app/api/scanner.py
 backend/app/skills/chokepoints.py
 backend/app/digest.py
