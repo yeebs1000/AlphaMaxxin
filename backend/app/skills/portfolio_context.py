@@ -138,11 +138,22 @@ def candidate_context(ticker: str, weights: dict, sectors: dict,
         out["sector_weight_after"] = round(after, 3)
         out["crowded"] = after > CROWDING_WARN
 
-    # --- overlap: the most-correlated things already owned.
+    # --- already held? Portfolio.md carries LOCAL tickers (D05) while the
+    # scan emits Yahoo symbols (D05.SI), so a plain equality test misses it and
+    # the name reports "corr 1.0" against itself. Compare on the bare root.
+    def _root(t):
+        return str(t).split(".")[0].lstrip("0").upper()
+
+    cand_root = _root(ticker)
+    held = [t for t in weights if _root(t) == cand_root]
+    out["already_held"] = bool(held)
+    out["held_weight"] = round(sum(weights[t] for t in held), 4) if held else None
+
+    # --- overlap: the most-correlated things already owned (excluding itself).
     overlaps = []
     if cand_ret:
         for t in weights:
-            if t == ticker:
+            if _root(t) == cand_root:
                 continue
             c = correlation(cand_ret, returns.get(t))
             if c is not None and c >= 0.60:
@@ -154,6 +165,9 @@ def candidate_context(ticker: str, weights: dict, sectors: dict,
 def context_line(ctx: dict) -> str | None:
     """One compact human line for the digest, or None if nothing is known."""
     bits = []
+    if ctx.get("already_held"):
+        w = ctx.get("held_weight")
+        bits.append(f"⚠ already held ({w:.0%})" if w else "⚠ already held")
     if ctx.get("beta") is not None:
         b = f"beta {ctx['beta']}"
         if ctx.get("book_beta") is not None and ctx.get("book_beta_after") is not None:

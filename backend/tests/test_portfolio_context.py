@@ -63,6 +63,25 @@ def test_candidate_context_reports_crowding_and_overlap():
     assert ctx["book_beta"] is not None and ctx["book_beta_after"] is not None
 
 
+def test_already_held_is_flagged_not_reported_as_self_correlation():
+    """Portfolio.md carries local tickers (D05) while the scan emits Yahoo
+    symbols (D05.SI). A plain equality test misses the match and the name
+    reports 'corr 1.0 w/ D05' against itself instead of 'already held'."""
+    bench = _series(400, seed=6)
+    r = [1.1 * x for x in bench]
+    ctx = pc.candidate_context("D05.SI", {"D05": 0.18, "MSFT": 0.27},
+                               {"D05": "Financial Services"},
+                               {"D05": r, "D05.SI": r, "MSFT": _series(400, seed=7)},
+                               bench, add_weight=0.05)
+    assert ctx["already_held"] is True
+    assert ctx["held_weight"] == 0.18
+    assert all(o["ticker"] != "D05" for o in ctx["overlaps"])   # no self-overlap
+    assert "already held (18%)" in pc.context_line(ctx)
+    # A genuinely new name is not flagged.
+    fresh = pc.candidate_context("O39.SI", {"D05": 0.18}, {}, {"O39.SI": r}, bench)
+    assert fresh["already_held"] is False
+
+
 def test_candidate_context_degrades_to_none_without_data():
     ctx = pc.candidate_context("XYZ", {"AAA": 0.5}, {}, {}, None)
     assert ctx["beta"] is None and ctx["book_beta"] is None

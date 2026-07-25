@@ -55,3 +55,5 @@ backend/tests/test_scan_digest.py
 backend/tests/test_telegram.py
 scripts/scan_digest_*.cmd
 scripts/scan_digest_*.vbs
+scripts/resolve_observations*.cmd
+scripts/resolve_observations*.vbs
