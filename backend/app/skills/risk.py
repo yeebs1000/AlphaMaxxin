@@ -116,23 +116,43 @@ def _concentration_flags(weights, sector_weights, currency_exposure) -> list[str
     return flags
 
 
-def _portfolio_return_series(weights: dict, returns: dict) -> np.ndarray | None:
+def _portfolio_return_series(weights: dict, returns: dict):
+    """→ (series, covered_weight). The coverage fraction matters: summing
+    weighted returns over only the names that HAVE bars silently reports a
+    30%-covered book as if it were the whole portfolio, understating vol and
+    beta. Callers must refuse to characterise a book below a coverage floor."""
     series = {t: np.asarray(r, dtype=float) for t, r in returns.items()
               if t in weights and len(r) > 1}
     if not series:
-        return None
+        return None, 0.0
     n = min(len(r) for r in series.values())
     port = np.zeros(n)
     for t, r in series.items():
         port += weights[t] * r[-n:]
-    return port
+    return port, float(sum(weights[t] for t in series))
+
+
+# Below this share of the book covered by return series, portfolio-level
+# metrics are not reported at all rather than reported wrong.
+_MIN_COVERAGE = 0.80
 
 
 def _return_based_metrics(weights, returns, benchmark_returns) -> dict:
     out = {}
-    port = _portfolio_return_series(weights, returns)
-    if port is None or len(port) < 20:
+    port, covered = _portfolio_return_series(weights, returns)
+    if port is None or len(port) < 20 or covered < _MIN_COVERAGE:
+        if port is not None and covered < _MIN_COVERAGE:
+            out["returns_coverage"] = round(covered, 3)
+            out["coverage_note"] = (
+                f"only {covered:.0%} of the book has return history — "
+                "portfolio vol/beta/drawdown withheld rather than misstated")
         return out
+    out["returns_coverage"] = round(covered, 3)
+    # Rescale to the covered weight so metrics describe a fully-invested book.
+    # ponytail: assumes the uncovered slice behaves like the covered one; the
+    # real fix is full bar coverage. Surfaced so the reader can discount it.
+    if covered > 0:
+        port = port / covered
 
     # Parametric daily VaR/CVaR at 95% (historical percentile method)
     var_95 = float(np.percentile(port, 5))
