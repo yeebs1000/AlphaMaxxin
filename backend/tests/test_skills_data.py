@@ -316,6 +316,28 @@ def _year(period, *, ni=100, ta=1000, cfo=140, debt=200, ca=300, cl=150,
             "shares": shares, "revenue": rev, "cogs": cogs}
 
 
+def test_cash_quality_flags_separates_burn_from_reinvestment():
+    # GOOGL shape: huge CFO, heavy capex, still self-funded -> NO flag. The
+    # old negative-FCF rule vetoed exactly this profile.
+    googl = [{"cfo": 164.7e9, "capex": -91.4e9}, {"cfo": 125.3e9, "capex": -52.5e9}]
+    assert fundamentals.cash_quality_flags(googl) == []
+    # INTC shape: capex exceeds CFO two years running -> externally funded.
+    intc = [{"cfo": 9.7e9, "capex": -14.6e9}, {"cfo": 8.3e9, "capex": -23.9e9}]
+    assert "externally funded" in " ".join(fundamentals.cash_quality_flags(intc))
+    # Real cash burner: negative operating cash flow.
+    burn = [{"cfo": -0.1e9, "capex": -0.1e9}, {"cfo": -0.2e9, "capex": -0.1e9}]
+    assert "negative operating cash flow" in fundamentals.cash_quality_flags(burn)
+
+
+def test_cash_quality_flags_missing_data_is_quiet():
+    assert fundamentals.cash_quality_flags(None) == []
+    assert fundamentals.cash_quality_flags([]) == []
+    assert fundamentals.cash_quality_flags([{"cfo": None, "capex": None}]) == []
+    # One year of overspend is not enough — needs 2 consecutive.
+    one = [{"cfo": 10.0, "capex": -20.0}, {"cfo": 10.0, "capex": -5.0}]
+    assert "externally funded" not in " ".join(fundamentals.cash_quality_flags(one))
+
+
 def test_f_score_all_nine_pass():
     # y0 improves on every axis vs y1 → 9/9.
     y1 = _year("2024-12-31", ni=50, ta=1000, cfo=40, debt=300, ca=250,

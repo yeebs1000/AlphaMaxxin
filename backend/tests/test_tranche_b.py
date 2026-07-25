@@ -45,6 +45,38 @@ def test_metrics_needs_history_and_adjusts_deposits(tmp_path):
     assert equity_history.metrics(short) is None
 
 
+def test_metrics_excludes_sale_periods_not_booking_gains_as_losses(tmp_path):
+    """A profitable SALE used to be booked as a loss of exactly the gain: the
+    book carries no cash, so value drops by MARKET value while flows only
+    remove COST basis, leaving (cost - market) < 0. Those periods must be
+    excluded, not reported backwards."""
+    path = str(tmp_path / "eq.json")
+    # Flat book, then on day 5 a holding bought for 200 is sold for 300:
+    # value 1000 -> 700 (market value leaves), cost 1000 -> 800.
+    series = [(1000, 1000), (1000, 1000), (1000, 1000), (1000, 1000),
+              (700, 800), (700, 800), (700, 800)]
+    for i, (v, c) in enumerate(series):
+        equity_history.record(_snap(v, c), file_path=path, today=D(2026, 7, 1 + i))
+    m = equity_history.metrics(path)
+    assert m["periods_excluded_sales"] == 1
+    # The sale period is gone, so the flat book reads flat — not -10%.
+    assert m["twr_pct"] == 0.0
+
+
+def test_metrics_annualises_on_observed_spacing(tmp_path):
+    """sqrt(252) assumes daily snapshots; these are written when a report runs.
+    Weekly spacing must annualise on ~52 periods, not 252."""
+    path = str(tmp_path / "eq.json")
+    start = D(2026, 7, 1)
+    for i, v in enumerate([1000, 1010, 1020, 1015, 1030, 1040]):
+        equity_history.record(_snap(v), file_path=path,
+                              today=start + datetime.timedelta(days=7 * i))
+    m = equity_history.metrics(path)
+    assert m["mean_gap_days"] == 7.0
+    daily_would_be = m["sharpe_ann"] * (252 / (365.25 / 7)) ** 0.5
+    assert m["sharpe_ann"] < daily_would_be      # no longer inflated
+
+
 # ---- dividends ----------------------------------------------------------------
 
 def test_income_view_yields_and_soon_flag():

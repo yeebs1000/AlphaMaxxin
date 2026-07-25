@@ -33,6 +33,11 @@ def _load(file_path=None) -> list[dict]:
         return []
 
 
+# A cost-basis drop below this fraction of book value is FX/rounding drift,
+# not a sale (real books show cent-level cost wobble every snapshot).
+_SALE_MATERIALITY = 0.005
+
+
 def record(summary: dict, file_path=None,
            today: datetime.date | None = None) -> None:
     """Upsert today's snapshot from a portfolio_summary(). Failure-soft and
@@ -64,25 +69,52 @@ def metrics(file_path=None) -> dict | None:
         return None
     values = np.array([r["value_usd"] for r in rows], dtype=float)
     costs = np.array([r.get("cost_usd") or 0 for r in rows], dtype=float)
+    dates = [datetime.date.fromisoformat(r["date"]) for r in rows]
 
     # Deposit-adjusted period returns: strip the cost-basis change out of the
     # value change so new money doesn't masquerade as performance.
     flows = np.diff(costs)
     rets = (np.diff(values) - flows) / values[:-1]
+
+    # A MATERIAL cost-basis decrease is a sale, and this series cannot measure
+    # it: the book carries no cash, so value falls by MARKET value while flows
+    # only remove COST basis — leaving (cost − market), i.e. a profitable sale
+    # booked as a loss of exactly the gain. Unfixable from snapshots alone, so
+    # drop those periods rather than report a number known to be backwards.
+    # Materiality matters: real books show cent-level cost drift from FX and
+    # rounding, and excluding on any negative would discard the whole series.
+    sale = flows < -_SALE_MATERIALITY * values[:-1]
+    n_excluded = int(sale.sum())
+    gaps = np.array([(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)],
+                    dtype=float)
+    rets, gaps = rets[~sale], gaps[~sale]
+    if len(rets) < 4:
+        return None                       # nothing honest left to report
+
     equity = np.cumprod(1 + rets)
     peak = np.maximum.accumulate(equity)
 
     mean, std = float(np.mean(rets)), float(np.std(rets, ddof=1))
     downside = rets[rets < 0]
     downside_std = float(np.std(downside, ddof=1)) if len(downside) > 1 else None
+    # Annualise on the OBSERVED spacing, not an assumed daily one: snapshots
+    # are written when a report runs, so gaps are irregular (often 1-5+ days).
+    # sqrt(252) on multi-day returns overstates Sharpe by ~sqrt(mean_gap).
+    mean_gap = float(np.mean(gaps)) if len(gaps) and np.mean(gaps) > 0 else 1.0
+    periods_per_year = 365.25 / mean_gap
+    ann = np.sqrt(periods_per_year)
     return {
         "n_snapshots": len(rows),
         "first_date": rows[0]["date"],
         "last_date": rows[-1]["date"],
         "twr_pct": round(float(equity[-1] - 1) * 100, 2),
         "max_drawdown_pct": round(float(np.min(equity / peak - 1)) * 100, 2),
-        "sharpe_ann": round(mean / std * np.sqrt(252), 2) if std > 0 else None,
-        "sortino_ann": round(mean / downside_std * np.sqrt(252), 2)
+        "sharpe_ann": round(mean / std * ann, 2) if std > 0 else None,
+        "sortino_ann": round(mean / downside_std * ann, 2)
                        if downside_std and downside_std > 0 else None,
-        "note": "snapshot-based TWR, deposit-adjusted via cost-basis deltas",
+        "periods_excluded_sales": n_excluded,
+        "mean_gap_days": round(mean_gap, 1),
+        "note": ("snapshot-based TWR, deposit-adjusted via cost-basis deltas; "
+                 "periods containing a sale are excluded (no cash tracking) "
+                 "and annualisation uses the observed snapshot spacing"),
     }

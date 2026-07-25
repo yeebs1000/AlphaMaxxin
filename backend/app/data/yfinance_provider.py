@@ -176,7 +176,9 @@ class YFinanceProvider:
                     "Current Assets": "current_assets",
                     "Current Liabilities": "current_liabilities",
                     "Ordinary Shares Number": "shares_balance"},
-        "cashflow": {"Operating Cash Flow": "cfo"},
+        # capex is negative in yfinance (a cash outflow); consumers use abs().
+        "cashflow": {"Operating Cash Flow": "cfo",
+                     "Capital Expenditure": "capex"},
     }
 
     def statements(self, ticker: str) -> list | None:

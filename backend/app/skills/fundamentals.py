@@ -186,6 +186,41 @@ def f_score(years: list | None) -> dict | None:
             "period": y0.get("period")}
 
 
+def cash_quality_flags(years: list | None) -> list[str]:
+    """Cash-generation red flags from annual statements (newest first).
+
+    Why this exists: a *negative FCF* flag cannot tell a cash-burning business
+    from a healthy one funding heavy capex out of operations — FCF = CFO −
+    capex, so any big investment programme trips it. Measured on the real
+    universe, the FCF rule vetoed Toyota/Alibaba/Novo (all strongly cash
+    generative) while MISSING X-Energy (genuinely negative CFO).
+
+    The two flags below are the honest split:
+      • negative operating cash flow — the business itself consumes cash.
+      • capex exceeding operating cash flow for 2+ straight years — the
+        investment programme is funded externally (debt/issuance), not by
+        operations. Deliberately a RED FLAG, never a bonus: the investment
+        literature (Cooper-Gulen-Schill asset growth, Titman-Wei-Xie capex,
+        Fama-French CMA) finds high investment predicts LOWER returns, so
+        heavy capex is only ever tolerated here, never rewarded.
+    """
+    flags = []
+    if not years:
+        return flags
+    cfo = to_number(years[0].get("cfo"))
+    if cfo is not None and cfo < 0:
+        flags.append("negative operating cash flow")
+    # 2+ consecutive years of capex > CFO — externally funded expansion.
+    overspend = 0
+    for y in years[:2]:
+        c, cx = to_number(y.get("cfo")), to_number(y.get("capex"))
+        if c is not None and cx is not None and abs(cx) > c:
+            overspend += 1
+    if overspend >= 2:
+        flags.append("capex exceeds operating cash flow — externally funded")
+    return flags
+
+
 def _quality_flags(raw: dict) -> list[str]:
     """Mechanical red/green flags the analyst must address, not invent.
 
