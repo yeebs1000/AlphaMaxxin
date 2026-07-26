@@ -292,24 +292,38 @@ _CASHFLOW_CACHE_TTL = 3600
 _cashflow_cache: dict = {}   # (start, end, trd_env) -> (timestamp, result)
 
 
-def get_moomoo_cash_flow(start: str | None = None, end: str | None = None,
-                         trd_env: str = "REAL") -> list | None:
-    """Account cash inflow/outflow records — the dated deposits and
-    withdrawals a money-weighted return (XIRR) needs. Read-only: this only
-    queries history, it never places or modifies an order.
+# Verified live 2026-07-25 against a FUTUSG margin account. The API returns
+# columns: cashflow_id, clearing_date, settlement_date, currency,
+# cashflow_type, cashflow_direction, cashflow_amount, cashflow_remark,
+# create_time — and THIS account type rejects start/end ranges outright
+# ("only supports querying cash flow through Clearing Date"), so history has
+# to be walked one clearing date at a time under a 10-req/30s cap.
+_CASHFLOW_RATE_SLEEP = 3.2
 
-    Returns [{date, amount, currency, type}] newest-first, or None when
-    moomoo-api isn't installed, OpenD isn't reachable, or the account has no
-    records. Dates are ISO strings.
+# Flow types that move money WITHIN the account rather than in or out of it.
+# Counting these as contributions would wreck a money-weighted return: a
+# money-market sweep or an FX leg is not new capital.
+INTERNAL_FLOW_TYPES = ("Fund Subscription", "Fund Redemption",
+                       "Currency Exchange", "Cash Dividend", "Dividend Tax")
 
-    # ponytail: moomoo caps this endpoint at 10 requests / 30s and the exact
-    # column names are UNVERIFIED against a live account (dev rule: no live
-    # broker calls without the user). Every field is read defensively via
-    # .get so a renamed column degrades to None rather than raising.
+
+def get_moomoo_cash_flow(days: int = 30, trd_env: str = "REAL",
+                         end_date=None) -> list | None:
+    """Account cash flow for the last `days` weekdays, newest first.
+    Read-only — queries history, never places or modifies an order.
+
+    Returns [{date, amount, currency, type, remark, internal}] or None.
+    `internal` marks money moving inside the account (MMF sweeps, FX legs,
+    dividends) as opposed to external capital; see INTERNAL_FLOW_TYPES.
+
+    Slow by construction: one request per clearing date at ~3.2s apart to
+    respect moomoo's 10-requests/30s cap, so 30 days is ~1.5 minutes.
     """
+    import datetime as _dt
     if not MOOMOO_AVAILABLE:
         return None
-    key = (start, end, trd_env)
+    end_date = end_date or _dt.date.today()
+    key = (days, trd_env, end_date.isoformat())
     cached = _cashflow_cache.get(key)
     if cached and (time.monotonic() - cached[0]) < _CASHFLOW_CACHE_TTL:
         return cached[1]
@@ -325,37 +339,38 @@ def get_moomoo_cash_flow(start: str | None = None, end: str | None = None,
             ret, accs = ctx.get_acc_list()
             if ret != RET_OK or accs is None or len(accs) == 0:
                 return None
-            candidates = accs[accs["trd_env"] == env] if hasattr(accs, "__getitem__") else accs
-            if hasattr(candidates, "__len__") and len(candidates) == 0:
-                candidates = accs
-            row = candidates.iloc[0] if hasattr(candidates, "iloc") else candidates[0]
-            kwargs = {"trd_env": env, "acc_id": int(row["acc_id"])}
-            if start:
-                kwargs["start"] = start
-            if end:
-                kwargs["end"] = end
-            ret, data = ctx.get_acc_cash_flow(**kwargs)
-            if ret != RET_OK or data is None or len(data) == 0:
-                return None
-            out = []
-            for i in range(len(data)):
-                r = data.iloc[i]
-                amount = r.get("amount") or r.get("cashflow_amount")
-                when = (r.get("create_time") or r.get("cashflow_time")
-                        or r.get("time") or "")
-                if amount is None or not when:
-                    continue
-                out.append({
-                    "date": str(when)[:10],
-                    "amount": float(amount),
-                    "currency": str(r.get("currency") or "USD"),
-                    "type": str(r.get("flow_type") or r.get("cashflow_type") or ""),
-                })
+            real = accs[accs["trd_env"] == env]
+            use = real if len(real) else accs
+            acc_id = int(use.iloc[0]["acc_id"])
+            out, day, seen = [], end_date, 0
+            while seen < days:
+                if day.weekday() < 5:      # paper/simulated accounts refuse entirely
+                    try:
+                        r, data = ctx.get_acc_cash_flow(
+                            clearing_date=day.isoformat(), trd_env=env, acc_id=acc_id)
+                        if r == RET_OK and data is not None and len(data):
+                            for i in range(len(data)):
+                                x = data.iloc[i]
+                                ctype = str(x.get("cashflow_type") or "")
+                                out.append({
+                                    "date": str(x.get("clearing_date") or day)[:10],
+                                    "amount": float(x.get("cashflow_amount") or 0),
+                                    "currency": str(x.get("currency") or "USD"),
+                                    "type": ctype,
+                                    "remark": str(x.get("cashflow_remark") or ""),
+                                    "internal": ctype in INTERNAL_FLOW_TYPES,
+                                })
+                    except Exception:  # noqa: BLE001 — one bad day must not
+                        pass           # sink the whole walk
+                    seen += 1
+                    time.sleep(_CASHFLOW_RATE_SLEEP)
+                day -= _dt.timedelta(days=1)
             return out or None
         finally:
             ctx.close()
 
-    result = _run_bounded(_fetch, timeout=_PORTFOLIO_TIMEOUT)
+    # Long walk — the bounded helper's short timeout does not apply here.
+    result = _fetch()
     if result is not None:
         _cashflow_cache[key] = (time.monotonic(), result)
     return result
