@@ -9,6 +9,7 @@ answers a different question ("is the book well built?"), and can therefore be
 run as often as wanted. Broker sync is opt-in because it reaches out to the
 local moomoo/IBKR/Tiger gateways.
 """
+import datetime
 import sys
 
 from .skills import portfolio_health
@@ -113,7 +114,43 @@ def gather(sync_brokers: bool = False) -> dict:
     return {"positions": positions, "equity_metrics": eq,
             "portfolio_beta": pbeta, "beta_coverage": round(covered, 2),
             "corr": corr, "summary": summary,
-            "benchmark_return_pct": _benchmark_return(reg, eq)}
+            "benchmark_return_pct": _benchmark_return(reg, eq),
+            "mwr": money_weighted(summary.get("total_value_usd"))}
+
+
+def money_weighted(current_value: float | None) -> dict | None:
+    """Money-weighted return — what the OWNER earned, given when money went
+    in. Prefers real dated broker cash flow; falls back to inferring flows
+    from snapshot cost-basis deltas, which is weaker and is labelled as such
+    so the number is never mistaken for transaction-grade."""
+    from . import equity_history
+    from .skills import money_weighted as mwmod
+    if not current_value:
+        return None
+
+    source, deposits = "broker cash flow", []
+    try:
+        from .brokers.moomoo_client import get_moomoo_cash_flow
+        rows = get_moomoo_cash_flow()
+        for r in rows or []:
+            try:
+                deposits.append((datetime.date.fromisoformat(r["date"]),
+                                 float(r["amount"])))
+            except (ValueError, KeyError, TypeError):
+                continue
+    except Exception:  # noqa: BLE001 — gateway down is normal, not an error
+        deposits = []
+
+    if not deposits:
+        source = "inferred from snapshot cost basis (approximate)"
+        deposits = mwmod.flows_from_snapshots(equity_history._load())
+    if not deposits:
+        return None
+
+    out = mwmod.money_weighted_return(deposits, current_value)
+    if out:
+        out["source"] = source
+    return out
 
 
 def _benchmark_return(reg, equity_metrics) -> float | None:
@@ -150,10 +187,12 @@ def _benchmark_return(reg, equity_metrics) -> float | None:
 
 def run(sync_brokers: bool = False) -> dict:
     data = gather(sync_brokers=sync_brokers)
-    return portfolio_health.health_report(
+    rep = portfolio_health.health_report(
         data["positions"], equity_metrics=data.get("equity_metrics"),
         portfolio_beta=data.get("portfolio_beta"), corr=data.get("corr"),
         benchmark_return_pct=data.get("benchmark_return_pct"))
+    rep["performance"]["mwr"] = data.get("mwr")
+    return rep
 
 
 def format_report(rep: dict) -> str:
@@ -174,6 +213,25 @@ def format_report(rep: dict) -> str:
         if perf.get("sharpe_ann") is not None:
             line += f", Sharpe {perf['sharpe_ann']}"
         out.append(line)
+    mwr = perf.get("mwr")
+    if mwr:
+        out.append(f"  {'Money-weighted':22} {mwr['mwr_annual_pct']:>8.2f}%  "
+                   f"annualised on {mwr['n_flows']} flow(s) over "
+                   f"{mwr['days']}d, net invested "
+                   f"${mwr['net_invested']:,.0f}")
+        if mwr.get("simple_gain_pct") is not None:
+            out.append(f"  {'':22} {mwr['simple_gain_pct']:>8.2f}%  "
+                       f"simple gain on contributed capital")
+        out.append(f"  {'':22} {'':>8}   source: {mwr['source']}")
+        # The GAP is the signal: TWR measures the strategy, MWR measures what
+        # the owner earned given when money arrived.
+        if perf.get("twr_pct") is not None:
+            gap = mwr["mwr_annual_pct"] - perf["twr_pct"]
+            if abs(gap) > 1.0:
+                worse = "below" if gap < 0 else "above"
+                out.append(f"  {'':22} {'':>8}   MWR is {abs(gap):.1f}pp {worse} "
+                           f"TWR — money "
+                           f"{'arrived at bad moments' if gap < 0 else 'arrived well'}")
     out += ["", "RECOMMENDATIONS"]
     if not rep["recommendations"]:
         out.append("  None — the book is within every structural limit.")

@@ -288,6 +288,79 @@ def get_moomoo_positions(trd_env: str = "REAL") -> list | None:
     return result
 
 
+_CASHFLOW_CACHE_TTL = 3600
+_cashflow_cache: dict = {}   # (start, end, trd_env) -> (timestamp, result)
+
+
+def get_moomoo_cash_flow(start: str | None = None, end: str | None = None,
+                         trd_env: str = "REAL") -> list | None:
+    """Account cash inflow/outflow records — the dated deposits and
+    withdrawals a money-weighted return (XIRR) needs. Read-only: this only
+    queries history, it never places or modifies an order.
+
+    Returns [{date, amount, currency, type}] newest-first, or None when
+    moomoo-api isn't installed, OpenD isn't reachable, or the account has no
+    records. Dates are ISO strings.
+
+    # ponytail: moomoo caps this endpoint at 10 requests / 30s and the exact
+    # column names are UNVERIFIED against a live account (dev rule: no live
+    # broker calls without the user). Every field is read defensively via
+    # .get so a renamed column degrades to None rather than raising.
+    """
+    if not MOOMOO_AVAILABLE:
+        return None
+    key = (start, end, trd_env)
+    cached = _cashflow_cache.get(key)
+    if cached and (time.monotonic() - cached[0]) < _CASHFLOW_CACHE_TTL:
+        return cached[1]
+    if not _opend_reachable():
+        return None
+
+    def _fetch():
+        env = TrdEnv.REAL if trd_env.upper() == "REAL" else TrdEnv.SIMULATE
+        ctx = OpenSecTradeContext(
+            host=MOOMOO_HOST, port=MOOMOO_PORT,
+            filter_trdmarket=TrdMarket.NONE, security_firm=SecurityFirm.NONE)
+        try:
+            ret, accs = ctx.get_acc_list()
+            if ret != RET_OK or accs is None or len(accs) == 0:
+                return None
+            candidates = accs[accs["trd_env"] == env] if hasattr(accs, "__getitem__") else accs
+            if hasattr(candidates, "__len__") and len(candidates) == 0:
+                candidates = accs
+            row = candidates.iloc[0] if hasattr(candidates, "iloc") else candidates[0]
+            kwargs = {"trd_env": env, "acc_id": int(row["acc_id"])}
+            if start:
+                kwargs["start"] = start
+            if end:
+                kwargs["end"] = end
+            ret, data = ctx.get_acc_cash_flow(**kwargs)
+            if ret != RET_OK or data is None or len(data) == 0:
+                return None
+            out = []
+            for i in range(len(data)):
+                r = data.iloc[i]
+                amount = r.get("amount") or r.get("cashflow_amount")
+                when = (r.get("create_time") or r.get("cashflow_time")
+                        or r.get("time") or "")
+                if amount is None or not when:
+                    continue
+                out.append({
+                    "date": str(when)[:10],
+                    "amount": float(amount),
+                    "currency": str(r.get("currency") or "USD"),
+                    "type": str(r.get("flow_type") or r.get("cashflow_type") or ""),
+                })
+            return out or None
+        finally:
+            ctx.close()
+
+    result = _run_bounded(_fetch, timeout=_PORTFOLIO_TIMEOUT)
+    if result is not None:
+        _cashflow_cache[key] = (time.monotonic(), result)
+    return result
+
+
 _DIVIDEND_CACHE_TTL = 3600  # seconds — dividend history changes rarely
 _dividend_cache: dict = {}  # code -> (timestamp, result)
 
