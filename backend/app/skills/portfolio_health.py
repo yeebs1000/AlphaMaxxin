@@ -34,7 +34,12 @@ SLEEVE_TARGETS = {
     "tactical":    (0.00, 0.25),
     "speculative": (0.00, 0.10),
 }
-DEFENSIVE_SECTORS = ("Consumer Defensive", "Healthcare", "Utilities")
+# Cash and money-market/short-bond funds are the purest defensive asset there
+# is — they cushion a drawdown by construction, so they belong in the same
+# bucket as staples/health/utilities for the "is anything holding this book up
+# in a selloff" question.
+CASH_SECTOR = "Cash & Equivalents"
+DEFENSIVE_SECTORS = ("Consumer Defensive", "Healthcare", "Utilities", CASH_SECTOR)
 MIN_DEFENSIVE = 0.15
 
 _GRADES = ((85, "A"), (70, "B"), (55, "C"), (40, "D"))

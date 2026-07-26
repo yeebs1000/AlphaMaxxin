@@ -291,6 +291,70 @@ def get_moomoo_positions(trd_env: str = "REAL") -> list | None:
 _CASHFLOW_CACHE_TTL = 3600
 _cashflow_cache: dict = {}   # (start, end, trd_env) -> (timestamp, result)
 
+_ASSETS_CACHE_TTL = 300
+_assets_cache: dict = {}
+
+
+def get_moomoo_account_assets(trd_env: str = "REAL") -> dict | None:
+    """Account-level assets: cash and money-market/bond FUND balances that
+    position_list_query does NOT return.
+
+    Why it matters: the owner sweeps idle cash into a money-market fund, so
+    that balance is real ballast the securities-only view cannot see. Verified
+    live — `fund_assets` and `cash` are separate columns from
+    `securities_assets`, and only the last of those shows up as positions.
+
+    Returns {total_assets, securities_assets, fund_assets, cash, currency}
+    in the requested currency, or None if unavailable.
+    """
+    if not MOOMOO_AVAILABLE:
+        return None
+    cached = _assets_cache.get(trd_env)
+    if cached and (time.monotonic() - cached[0]) < _ASSETS_CACHE_TTL:
+        return cached[1]
+    if not _opend_reachable():
+        return None
+
+    def _fetch():
+        from moomoo import Currency
+        env = TrdEnv.REAL if trd_env.upper() == "REAL" else TrdEnv.SIMULATE
+        ctx = OpenSecTradeContext(
+            host=MOOMOO_HOST, port=MOOMOO_PORT,
+            filter_trdmarket=TrdMarket.NONE, security_firm=SecurityFirm.NONE)
+        try:
+            ret, accs = ctx.get_acc_list()
+            if ret != RET_OK or accs is None or len(accs) == 0:
+                return None
+            real = accs[accs["trd_env"] == env]
+            use = real if len(real) else accs
+            acc_id = int(use.iloc[0]["acc_id"])
+            ret, info = ctx.accinfo_query(trd_env=env, acc_id=acc_id,
+                                          currency=Currency.USD)
+            if ret != RET_OK or info is None or len(info) == 0:
+                return None
+            r = info.iloc[0]
+
+            def num(key):
+                v = r.get(key)
+                try:
+                    f = float(v)
+                    return f if f == f else None      # drop NaN
+                except (TypeError, ValueError):
+                    return None                       # moomoo emits "N/A"
+
+            return {"total_assets": num("total_assets"),
+                    "securities_assets": num("securities_assets"),
+                    "fund_assets": num("fund_assets"),
+                    "cash": num("cash"),
+                    "currency": "USD"}
+        finally:
+            ctx.close()
+
+    result = _run_bounded(_fetch, timeout=_PORTFOLIO_TIMEOUT)
+    if result is not None:
+        _assets_cache[trd_env] = (time.monotonic(), result)
+    return result
+
 
 # Verified live 2026-07-25 against a FUTUSG margin account. The API returns
 # columns: cashflow_id, clearing_date, settlement_date, currency,

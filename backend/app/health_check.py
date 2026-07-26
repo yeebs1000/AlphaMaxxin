@@ -93,6 +93,19 @@ def gather(sync_brokers: bool = False) -> dict:
                     if benchmarks.get(t) else None,
         })
 
+    # Cash and money-market/short-bond funds sit OUTSIDE position_list_query,
+    # so a securities-only view misses real ballast. The owner sweeps idle cash
+    # into a money-market fund, so this balance moves; adding it as one line
+    # keeps sector weights and the defensive floor honest.
+    cash_line = _cash_position(summary.get("total_value_usd"))
+    if cash_line:
+        positions.append(cash_line)
+        # Re-weight: the book just got bigger by the cash leg.
+        total = (summary.get("total_value_usd") or 0) + cash_line["value_usd"]
+        if total:
+            for p in positions:
+                p["weight"] = (p["value_usd"] or 0) / total
+
     # Portfolio beta = weighted mean of LOCAL-market betas (see
     # portfolio_context: a single US benchmark mis-measures HK/SG names).
     known = {p["ticker"]: p["beta"] for p in positions if p.get("beta") is not None}
@@ -197,6 +210,33 @@ def money_weighted(current_value: float | None, pull_broker: bool = True,
         if note:
             out["note"] = note
     return out
+
+
+def _cash_position(book_value: float | None) -> dict | None:
+    """Broker cash + money-market/bond fund balances as a single ballast line.
+
+    Beta 0 and no fundamentals by construction — scoring a money-market fund
+    on revenue growth would be nonsense, so those fields stay None and drop
+    out of the relevant dimensions rather than dragging them down.
+    """
+    try:
+        from .brokers.moomoo_client import get_moomoo_account_assets
+        assets = get_moomoo_account_assets()
+    except Exception:  # noqa: BLE001 — gateway down is normal
+        return None
+    if not assets:
+        return None
+    amount = (assets.get("cash") or 0) + (assets.get("fund_assets") or 0)
+    if amount <= 0:
+        return None
+    return {
+        "ticker": "CASH", "company": "Cash & money-market funds",
+        "weight": None,                      # set by the caller after re-weighting
+        "value_usd": amount,
+        "sector": portfolio_health.CASH_SECTOR,
+        "stage": "cash", "sleeve": "ballast",
+        "fund_score": None, "fund_verdict": None, "beta": 0.0,
+    }
 
 
 def _benchmark_return(reg, equity_metrics) -> float | None:

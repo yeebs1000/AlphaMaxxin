@@ -117,6 +117,24 @@ def test_excess_return_is_reported_against_the_benchmark():
     assert rep["performance"]["excess_pct"] == 3.0     # alpha, not raw return
 
 
+def test_cash_counts_as_defensive_and_is_not_scored_on_fundamentals():
+    """Cash and money-market funds are the purest drawdown cushion, so they
+    belong in the defensive bucket — but scoring a money-market fund on
+    revenue growth is nonsense, so its None fields must drop out."""
+    positions = [
+        _pos("A", 0.60, "Technology", "core", fund_score=80),
+        {"ticker": "CASH", "weight": 0.40, "sector": ph.CASH_SECTOR,
+         "sleeve": "ballast", "stage": "cash", "fund_score": None, "beta": 0.0},
+    ]
+    rep = ph.health_report(positions, portfolio_beta=0.6)
+    assert rep["dimensions"]["sector_balance"]["defensive_weight"] == 0.40
+    # 40% defensive clears the floor, so no add_defensive recommendation.
+    assert not [r for r in rep["recommendations"] if r["action"] == "add_defensive"]
+    # Quality is scored on the ONE holding that has a score, not dragged to 0.
+    assert rep["dimensions"]["quality"]["score"] == 80.0
+    assert rep["dimensions"]["quality"]["coverage"] == 0.6
+
+
 def test_empty_book():
     rep = ph.health_report([])
     assert rep["score"] is None and rep["recommendations"] == []
