@@ -307,6 +307,31 @@ INTERNAL_FLOW_TYPES = ("Fund Subscription", "Fund Redemption",
                        "Currency Exchange", "Cash Dividend", "Dividend Tax")
 
 
+def external_flows(rows: list | None) -> list:
+    """The subset that is genuinely money entering or leaving the ACCOUNT —
+    the only flows a money-weighted return may count.
+
+    moomoo has no "Deposit" type. Verified against the live account (owner
+    confirmed): an external transfer arrives as cashflow_type "Others" WITH a
+    transfer reference in cashflow_remark, while a trade arrives as "Others"
+    with an EMPTY remark. So the remark is the discriminator.
+
+    This matters more than it looks: a purchase and a deposit both move cash,
+    but only one is new capital. Treating a stock purchase funded from
+    existing cash as a contribution is what made the snapshot-based fallback
+    read a routine buy as a $3.5k deposit.
+    """
+    out = []
+    for r in rows or []:
+        if r.get("internal"):
+            continue
+        remark = (r.get("remark") or "").strip()
+        if not remark or remark.upper() == "N/A":
+            continue                  # blank remark => a trade, not capital
+        out.append(r)
+    return out
+
+
 def get_moomoo_cash_flow(days: int = 30, trd_env: str = "REAL",
                          end_date=None) -> list | None:
     """Account cash flow for the last `days` weekdays, newest first.

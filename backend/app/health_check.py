@@ -118,38 +118,84 @@ def gather(sync_brokers: bool = False) -> dict:
             "mwr": money_weighted(summary.get("total_value_usd"))}
 
 
-def money_weighted(current_value: float | None) -> dict | None:
-    """Money-weighted return — what the OWNER earned, given when money went
-    in. Prefers real dated broker cash flow; falls back to inferring flows
-    from snapshot cost-basis deltas, which is weaker and is labelled as such
-    so the number is never mistaken for transaction-grade."""
+def money_weighted(current_value: float | None, pull_broker: bool = True,
+                   days: int = 40) -> dict | None:
+    """Money-weighted return over the equity-history window.
+
+    Only EXTERNAL capital counts. Verified on the live account: a stock
+    purchase funded from existing cash moves the cost basis exactly like a
+    deposit does, so the snapshot proxy read a routine buy as $3.5k of new
+    money and produced a -31.7% MWR that was pure artifact. Broker-classified
+    flows are therefore strongly preferred, and when they show NO external
+    flows in the window the honest answer is that MWR equals TWR.
+    """
     from . import equity_history
+    from .data.registry import get_default_registry
     from .skills import money_weighted as mwmod
     if not current_value:
         return None
-
-    source, deposits = "broker cash flow", []
-    try:
-        from .brokers.moomoo_client import get_moomoo_cash_flow
-        rows = get_moomoo_cash_flow()
-        for r in rows or []:
-            try:
-                deposits.append((datetime.date.fromisoformat(r["date"]),
-                                 float(r["amount"])))
-            except (ValueError, KeyError, TypeError):
-                continue
-    except Exception:  # noqa: BLE001 — gateway down is normal, not an error
-        deposits = []
-
-    if not deposits:
-        source = "inferred from snapshot cost basis (approximate)"
-        deposits = mwmod.flows_from_snapshots(equity_history._load())
-    if not deposits:
+    rows = equity_history._load()
+    if len(rows) < 2:
         return None
+    w0 = datetime.date.fromisoformat(rows[0]["date"])
+    w1 = datetime.date.fromisoformat(rows[-1]["date"])
+    opening = float(rows[0].get("value_usd") or 0)
 
-    out = mwmod.money_weighted_return(deposits, current_value)
+    # The measured portfolio is the SECURITIES BOOK: value_usd counts holdings
+    # and carries no cash leg. So cash deployed from account cash into stock is
+    # a CONTRIBUTION to the thing being measured, even though it is not new
+    # capital to the account. Omitting it makes a cash->stock conversion read
+    # as pure gain (it produced a 617,292% MWR before this was corrected).
+    # Cost-basis deltas capture exactly those contributions.
+    contributions = mwmod.flows_from_snapshots(rows)[1:]     # drop opening
+    note = None
+
+    # Broker data cannot replace those flows, but it answers a different and
+    # useful question: was any of the growth NEW money?
+    external = None
+    if pull_broker:
+        try:
+            from .brokers.moomoo_client import external_flows, get_moomoo_cash_flow
+            flows = external_flows(get_moomoo_cash_flow(days=days))
+            if flows is not None:
+                fx = get_default_registry().yahoo
+                external = []
+                for r in flows:
+                    try:
+                        d = datetime.date.fromisoformat(r["date"])
+                    except (ValueError, KeyError):
+                        continue
+                    if not (w0 <= d <= w1):
+                        continue
+                    amt = float(r.get("amount") or 0)
+                    ccy = (r.get("currency") or "USD").upper()
+                    if ccy != "USD":     # this account funds in SGD
+                        rate = fx.fx_rate(ccy)
+                        if not rate:
+                            continue
+                        amt *= rate
+                    external.append((d, amt))
+        except Exception:  # noqa: BLE001 — gateway down is normal
+            external = None
+
+    if external is not None:
+        note = (f"broker-verified: {len(external)} external deposit(s) in this "
+                "window" + ("" if external else
+                            " — the book grew by deploying existing account "
+                            "cash, not new money"))
+
+    out = mwmod.money_weighted_return([(w0, opening)] + contributions,
+                                      current_value, as_of=w1)
     if out:
-        out["source"] = source
+        out["source"] = ("securities-book flows (cost-basis deltas); "
+                         + ("broker-verified external capital"
+                            if external is not None else
+                            "broker cash flow unavailable"))
+        out["window"] = f"{w0.isoformat()} to {w1.isoformat()}"
+        out["external_flows_in_window"] = (len(external)
+                                           if external is not None else None)
+        if note:
+            out["note"] = note
     return out
 
 
@@ -222,7 +268,11 @@ def format_report(rep: dict) -> str:
         if mwr.get("simple_gain_pct") is not None:
             out.append(f"  {'':22} {mwr['simple_gain_pct']:>8.2f}%  "
                        f"simple gain on contributed capital")
+        out.append(f"  {'':22} {'':>8}   window {mwr.get('window', '?')}, "
+                   f"{mwr.get('external_flows_in_window', 0)} external flow(s)")
         out.append(f"  {'':22} {'':>8}   source: {mwr['source']}")
+        if mwr.get("note"):
+            out.append(f"  {'':22} {'':>8}   {mwr['note']}")
         # The GAP is the signal: TWR measures the strategy, MWR measures what
         # the owner earned given when money arrived.
         if perf.get("twr_pct") is not None:
