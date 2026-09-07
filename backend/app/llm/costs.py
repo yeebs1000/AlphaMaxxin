@@ -17,6 +17,15 @@ PRICE_TABLE = {  # USD per 1M tokens: (input, output)
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-opus-4-8": (15.00, 75.00),
     "gpt-4o-mini": (0.15, 0.60),
+    # DeepSeek V4-Flash, reached through the local LiteLLM proxy since
+    # 2026-08-21 (scanner.py SCANNER_MODEL). Keys are the id as RECORDED --
+    # router.call_llm reports the full "local/<alias>" model string, so the
+    # bare id alone would not match and every call read $0. Priced from
+    # litellm.model_cost for deepseek/deepseek-v4-flash: $0.44/$1.32 per 1M.
+    # Cache reads bill $0.014/1M, which this table cannot express -- so a
+    # cache-heavy run is over-stated here, never under-stated.
+    "local/deepseek-flash": (0.44, 1.32),
+    "deepseek-v4-flash": (0.44, 1.32),
 }
 
 

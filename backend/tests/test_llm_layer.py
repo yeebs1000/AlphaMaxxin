@@ -66,6 +66,18 @@ def test_semaphores():
         router.semaphore_for_model("claude-sonnet-4-6")
 
 
+def test_deepseek_does_not_inherit_the_local_gpu_semaphore():
+    """local/deepseek-flash contains both "deepseek" and "local", and
+    semaphore_for_model returns on the first substring hit. Order in
+    _PROVIDER_CONCURRENCY is therefore load-bearing: get it wrong and
+    every cloud DeepSeek call is throttled to the 2-wide 780M GPU limit."""
+    assert router.semaphore_for_model("local/deepseek-flash") is not \
+        router.semaphore_for_model("local/local-agent")
+    keys = list(router._PROVIDER_CONCURRENCY)
+    assert keys.index("deepseek") < keys.index("local")
+    assert router._PROVIDER_CONCURRENCY["local"] == 2  # GPU limit intact
+
+
 def test_provider_routing_by_model_name():
     p = router._provider_for
     assert p("claude-sonnet-4-6", True, True, True) == "anthropic"
@@ -217,6 +229,18 @@ def test_price_call_known_and_unknown():
     assert priced["priced"] is True
     unknown = price_call("mystery-model", 1000, 1000)
     assert unknown["usd"] == 0.0 and unknown["priced"] is False
+
+
+def test_every_configured_model_is_priced():
+    """The meter silently reports $0 for any id missing from PRICE_TABLE.
+    The scanner ran on an unpriced DeepSeek alias from 2026-08-21 and
+    logged 437K in / 99K out as free -- $0.32 of real spend invisible.
+    Bound to the live config so swapping SCANNER_MODEL without pricing it
+    fails here, not in a month of understated cost history."""
+    from app.scanner import SCANNER_MODEL
+    assert price_call(SCANNER_MODEL, 1000, 1000)["priced"] is True
+    ds = price_call("local/deepseek-flash", 1_000_000, 1_000_000)
+    assert ds["usd"] == pytest.approx(0.44 + 1.32)
 
 
 def test_cost_meter_totals_and_cached(tmp_path):
