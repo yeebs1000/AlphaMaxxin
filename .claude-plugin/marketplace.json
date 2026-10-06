@@ -1,0 +1,24 @@
+{
+  "name": "alphamaxx",
+  "owner": {
+    "name": "Yeebs"
+  },
+  "metadata": {
+    "description": "Standalone AlphaMaxx research skills for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "alphamaxx-research",
+      "version": "0.1.0",
+      "description": "Ten investment research skills, including macro, valuation, quant validation, and portfolio risk.",
+      "source": {
+        "source": "archive",
+        "url": "https://github.com/yeebs1000/AlphaMaxxin/releases/download/skills-v0.1.0/alphamaxx-skills.zip",
+        "sha256": "a2403775cac5cfef7902965f1336719ae01fc9e3ab9ead53394de20de4b0af36"
+      },
+      "homepage": "https://github.com/yeebs1000/AlphaMaxxin/blob/master/INSTALL_SKILLS.md",
+      "repository": "https://github.com/yeebs1000/AlphaMaxxin",
+      "license": "MIT"
+    }
+  ]
+}

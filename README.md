@@ -4,11 +4,18 @@
 
 [![CI](https://github.com/yeebs1000/AlphaMaxxin/actions/workflows/ci.yml/badge.svg)](https://github.com/yeebs1000/AlphaMaxxin/actions/workflows/ci.yml) ![License](https://img.shields.io/badge/license-MIT-blue) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Read--only](https://img.shields.io/badge/broker%20access-read--only-brightgreen)
 
-A local, multi-lens investment analyst. Python computes every number —
-technicals, fundamentals, macro, risk, catalysts — from real data feeds, and
-a small set of AI "analyst lenses" interprets those numbers into a single
-high-conviction research report on your **portfolio**, any **ticker**, or a
+A local investment research workbench. Python computes metrics for
+technicals, fundamentals, macro, risk, and catalysts from data feeds, and
+AI "analyst lenses" interpret the supplied context into a structured
+research report on your **portfolio**, any **ticker**, or a
 **watchlist**. Broker positions sync live from moomoo / IBKR / Tiger.
+
+**Project status:** experimental research software. Scores and sizing rules
+are heuristics; model results and AI reports need independent verification.
+See [research limitations](RESEARCH_LIMITATIONS.md) for the current gaps.
+
+**Want just the skills?** [Download the standalone pack](https://github.com/yeebs1000/AlphaMaxxin/releases/download/skills-v0.1.0/alphamaxx-skills.zip)
+or [give this install guide to Codex or Claude Code](INSTALL_SKILLS.md).
 
 **Never used this before?** Just follow Quickstart below — it walks you
 through everything.
@@ -53,13 +60,15 @@ meter estimates usage for provider calls.
 
 ---
 
-## Codex research skills
+## Research skills for Codex and Claude Code
 
 Ten reusable research skills live in [`.agents/skills`](.agents/skills/README.md),
 covering macro, fundamentals, market signals, catalysts, quant validation,
-and portfolio risk. Open this repository in Codex and select a skill such as
-`$alpha-macro` or `$alpha-research`. These are agent research instructions;
-the app's deterministic Python skills and analyst pipeline run separately.
+and portfolio risk. Install the [standalone pack](INSTALL_SKILLS.md) without
+setting up the app. In Codex, use `$alpha-macro` or `$alpha-research`; the Claude
+Code plugin exposes `/alphamaxx-research:alpha-macro` and
+`/alphamaxx-research:alpha-research`. These are agent research instructions;
+the app's Python analytics and analyst pipeline run separately.
 
 ---
 

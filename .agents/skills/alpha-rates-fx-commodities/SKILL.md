@@ -27,7 +27,6 @@ Separate spot change, futures convergence/roll return, and collateral yield. Con
 
 Give a dated market-input table, dominant drivers, scenarios by tenor/currency/commodity, asset-specific directional implications, and principal risks. Keep missing forward curves, credit data and positioning explicit. Funding and broker-specific margin questions belong with alpha-portfolio-risk.
 
-Source adaptation: Prompts 8 and 9.
 
 ## Evidence and signal contract
 

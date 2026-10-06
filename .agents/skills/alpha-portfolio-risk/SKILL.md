@@ -29,7 +29,6 @@ For staged orders or futures rolls, use current spread, depth, volume, tick/lot 
 
 Give exposure/constraint table, computed versus unavailable metrics, scenario losses, funding/hedge costs, feasible allocation alternatives, and status: constraints checked, violations, or incomplete. Identify exact inputs and constraints used. Never label a hypothetical review as broker authorization or executed hedges.
 
-Source adaptation: Prompts 25, 26, 28 and 29.
 
 ## Evidence and signal contract
 

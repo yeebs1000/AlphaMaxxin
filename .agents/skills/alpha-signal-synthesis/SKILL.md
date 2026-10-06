@@ -17,7 +17,7 @@ Select only relevant, available inputs. Missing evidence remains unavailable; it
 
 For a declared confidence mapping, S_raw = sum(w_i*c_i*s_i)/sum(w_i*c_i) over available comparable inputs. The source uses High=1, Medium=0.65, Low=0.35. Report effective normalized weights, denominator, coverage and confidence separately; those multipliers are not probabilities. If no usable weighted inputs exist, return unavailable.
 
-Use [scripts/aggregate_signals.py](scripts/aggregate_signals.py) for reproducible supplied-data aggregation: run `python scripts/aggregate_signals.py input.json`. Read its `--help` and input example in the reference. It validates direction mapping, asset/horizon alignment, ranges, missing values and adjustment limits; it does not verify sources or calibrate a model.
+Use [scripts/aggregate_signals.py](scripts/aggregate_signals.py) for reproducible supplied-data aggregation. Resolve the script relative to this installed skill's directory, then run `python "<absolute-skill-path>/scripts/aggregate_signals.py" "<absolute-input-path>.json"` from any working directory. Read its `--help` and input example in the reference. It validates direction mapping, asset/horizon alignment, ranges, missing values and adjustment limits; it does not verify sources or calibrate a model.
 
 Log same-asset/horizon disagreements >1.5 points with driver, freshness and dependency. Examine all materially relevant conflicts; do not hide a contradiction just because a source weight is small. Prefer explanatory reconciliation or an unresolved status over an automatic regime override.
 
@@ -27,7 +27,6 @@ Any user-selected adjustment needs a named rule, observed trigger, numeric effec
 
 Give input/effective-weight table, excluded/missing inputs, coverage, separate tactical/positional/thematic scores, conflict register, adjustment log and unresolved limitations. A composite score is a research summary; alpha-portfolio-risk assesses sizing feasibility.
 
-Source adaptation: Prompt 23 and Prompt 0 conflict handling.
 
 ## Evidence and signal contract
 

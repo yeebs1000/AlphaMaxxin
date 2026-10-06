@@ -21,13 +21,12 @@ Specify the platform, language, sample dates, search terms, deduplication and bo
 
 Track transaction, filing and public availability dates separately; a backtest can use a record only after it became publicly available. Preserve reported amount ranges, purchaser/owner identity, amendments, broad funds and uncertain ticker mapping. A committee link is contextual evidence, not proof of privileged information or misconduct.
 
-The source's political boost rules conflict (Prompt 14b versus 23). Default to no automatic boost or conviction promotion. If the user explicitly chooses a testable rule, specify exact conditions, score polarity, amount-range treatment and disclosure-time alignment; validate incremental value after costs before using it. Corroboration is not a substitute for testing.
+The original prompt library proposed conflicting political-trade boost rules; the alternatives are documented in `references/proxy-checks.md`. Default to no automatic boost or conviction promotion. If the user explicitly chooses a testable rule, specify exact conditions, score polarity, amount-range treatment and disclosure-time alignment; validate incremental value after costs before using it. Corroboration is not a substitute for testing.
 
 ## Output
 
 Give dataset/proxy provenance and coverage, observed anomaly, alternative explanations, business linkage, disclosure lag where relevant, corroboration, and limitations. Keep an unvalidated alternative signal distinct from a quantified alpha claim.
 
-Source adaptation: Prompts 10, 14b and 18.
 
 ## Evidence and signal contract
 

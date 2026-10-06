@@ -29,7 +29,6 @@ Give conditional setup, support/resistance ranges, confirmation, invalidation, e
 
 Produce the dated data/indicator table, setup explanation, range-based levels, alternatives, principal failure modes and horizon-specific directional view. Mark estimated liquidity and assumptions. Route sizing and execution feasibility through alpha-portfolio-risk; preparing a setup does not authorize an order.
 
-Source adaptation: Prompts 14 and 16.
 
 ## Evidence and signal contract
 

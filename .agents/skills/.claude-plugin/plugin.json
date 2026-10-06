@@ -1,0 +1,12 @@
+{
+  "name": "alphamaxx-research",
+  "version": "0.1.0",
+  "description": "Ten source-backed investment research skills, usable without the AlphaMaxxin application.",
+  "author": {
+    "name": "Yeebs"
+  },
+  "homepage": "https://github.com/yeebs1000/AlphaMaxxin/blob/master/INSTALL_SKILLS.md",
+  "repository": "https://github.com/yeebs1000/AlphaMaxxin",
+  "license": "MIT",
+  "skills": ["./"]
+}
