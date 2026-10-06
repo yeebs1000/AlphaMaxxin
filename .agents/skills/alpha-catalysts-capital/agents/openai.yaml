@@ -1,0 +1,4 @@
+interface:
+  display_name: "Catalysts & Capital Markets"
+  short_description: "Analyze events, IPOs, M&A and private capital"
+  default_prompt: "Use $alpha-catalysts-capital to analyze my selected investment question using dated evidence."

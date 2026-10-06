@@ -1,0 +1,4 @@
+interface:
+  display_name: "Investment Research"
+  short_description: "Coordinate evidence-backed investment research"
+  default_prompt: "Use $alpha-research to analyze my selected investment question using dated evidence."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Portfolio Risk & Costs"
+  short_description: "Assess allocation risk, financing and execution costs"
+  default_prompt: "Use $alpha-portfolio-risk to analyze my selected investment question using dated evidence."

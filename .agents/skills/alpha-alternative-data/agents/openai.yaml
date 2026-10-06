@@ -1,0 +1,4 @@
+interface:
+  display_name: "Alternative Data & Sentiment"
+  short_description: "Assess alternative signals and disclosure timing"
+  default_prompt: "Use $alpha-alternative-data to analyze my selected investment question using dated evidence."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Global Macro Analysis"
+  short_description: "Analyze regional cycles and central-bank policy"
+  default_prompt: "Use $alpha-macro to analyze my selected investment question using dated evidence."

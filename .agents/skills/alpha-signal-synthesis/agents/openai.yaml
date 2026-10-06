@@ -1,0 +1,4 @@
+interface:
+  display_name: "Investment Signal Synthesis"
+  short_description: "Combine comparable signals and expose disagreements"
+  default_prompt: "Use $alpha-signal-synthesis to analyze my selected investment question using dated evidence."

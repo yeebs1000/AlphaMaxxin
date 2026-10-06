@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fundamental & Sector Analysis"
+  short_description: "Analyze earnings quality, valuation and sector drivers"
+  default_prompt: "Use $alpha-fundamentals to analyze my selected investment question using dated evidence."

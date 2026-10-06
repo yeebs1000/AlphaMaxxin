@@ -53,6 +53,16 @@ every call.
 
 ---
 
+## Codex research skills
+
+Ten reusable research skills live in [`.agents/skills`](.agents/skills/README.md),
+covering macro, fundamentals, market signals, catalysts, quant validation,
+and portfolio risk. Open this repository in Codex and select a skill such as
+`$alpha-macro` or `$alpha-research`. These are agent research instructions;
+the app's deterministic Python skills and analyst pipeline run separately.
+
+---
+
 ## Quickstart (first time on this computer)
 
 1. **Install Python** ([python.org/downloads](https://www.python.org/downloads/),
