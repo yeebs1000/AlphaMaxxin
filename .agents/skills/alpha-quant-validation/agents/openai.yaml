@@ -1,0 +1,4 @@
+interface:
+  display_name: "Quant Models & Backtesting"
+  short_description: "Validate predictive models and strategy performance"
+  default_prompt: "Use $alpha-quant-validation to analyze my selected investment question using dated evidence."

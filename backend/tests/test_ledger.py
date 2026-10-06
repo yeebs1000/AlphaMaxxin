@@ -68,5 +68,22 @@ def test_missing_or_corrupt_file_is_empty(tmp_path):
     assert ledger.summary(file_path=str(bad))["total"] == 0
 
 
+def test_score_preview_preserves_file_and_summarizes_current_snapshot(tmp_path):
+    path = tmp_path / "ledger.json"
+    ledger.record(_report(
+        recs=[{"ticker": "AAA", "action": "buy", "conviction": "high"}],
+        blocks={"AAA": _block()}), file_path=str(path))
+    original = path.read_bytes()
+
+    snapshot = ledger.score(lambda _: {"price": 125}, file_path=str(path),
+                            today=datetime.date(2026, 7, 2), persist=False)
+
+    assert snapshot["entries"][0]["status"] == "target"
+    assert snapshot["entries"][0]["return_pct"] == 25.0
+    assert path.read_bytes() == original
+    assert ledger.summary(snapshot=snapshot)["by_conviction"]["high"]["hit_rate"] == 1.0
+    assert ledger.summary(file_path=str(path))["open"] == 1
+
+
 def test_record_is_failure_soft():
     assert ledger.record(None, file_path="ignored") == 0  # type: ignore[arg-type]

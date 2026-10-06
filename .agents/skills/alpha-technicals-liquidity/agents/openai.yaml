@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical & Liquidity Analysis"
+  short_description: "Evaluate price setups and execution liquidity"
+  default_prompt: "Use $alpha-technicals-liquidity to analyze my selected investment question using dated evidence."

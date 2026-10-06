@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rates, FX & Commodities"
+  short_description: "Connect curves, credit, currencies and commodities"
+  default_prompt: "Use $alpha-rates-fx-commodities to analyze my selected investment question using dated evidence."

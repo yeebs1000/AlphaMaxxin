@@ -40,7 +40,7 @@ def client(tmp_path, monkeypatch):
          "provider": "alphavantage"}]})
     app.dependency_overrides[get_registry] = lambda: make_registry(yahoo=yahoo,
                                                                    alphavantage=av)
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1:8000")
 
 
 def test_status(client):
