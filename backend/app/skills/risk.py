@@ -9,14 +9,26 @@ benchmark_returns: [daily pct returns] for the benchmark (e.g. SPY)
 """
 import numpy as np
 
+from ..data.base import to_number
+
 
 def compute_risk(holdings: list[dict], values_usd: dict,
                  returns: dict | None = None,
                  benchmark_returns: list | None = None,
                  sectors: dict | None = None,
-                 adv_usd: dict | None = None) -> dict:
+                 adv_usd: dict | None = None,
+                 returns_basis: str = "local_currency_close_returns; historical_fx_not_included",
+                 return_interval_days: list | None = None) -> dict:
     """adv_usd: {ticker: average daily traded value in USD} — enables the
     liquidity (days-to-liquidate) block when supplied."""
+    missing = [h["ticker"] for h in holdings if h.get("quantity")
+               and to_number(values_usd.get(h["ticker"])) is None]
+    if missing:
+        return {"portfolio_value_usd": None, "holdings_count": len(holdings),
+                "weights": {}, "flags": [], "valuation_complete": False,
+                "valuation_errors": [f"{t}: market value unavailable" for t in missing],
+                "returns_basis": returns_basis,
+                "note": "whole-book risk unavailable until every holding is valued"}
     total = sum(values_usd.get(h["ticker"], 0.0) for h in holdings)
     weights = {h["ticker"]: (values_usd.get(h["ticker"], 0.0) / total if total else 0.0)
                for h in holdings}
@@ -46,10 +58,13 @@ def compute_risk(holdings: list[dict], values_usd: dict,
         "currency_exposure": currency_exposure,
         "sector_weights": sector_weights,
         "flags": _concentration_flags(weights, sector_weights, currency_exposure),
+        "returns_basis": returns_basis,
+        "valuation_complete": True,
     }
 
     if returns:
-        report.update(_return_based_metrics(weights, returns, benchmark_returns))
+        report.update(_return_based_metrics(weights, returns, benchmark_returns,
+                                             return_interval_days))
     report["stress_scenarios"] = _stress_scenarios(
         report.get("portfolio_beta"), currency_exposure, total)
     if adv_usd:
@@ -125,11 +140,15 @@ def _portfolio_return_series(weights: dict, returns: dict):
               if t in weights and len(r) > 1}
     if not series:
         return None, 0.0
-    n = min(len(r) for r in series.values())
+    covered = float(sum(weights[t] for t in series))
+    lengths = {len(r) for r in series.values()}
+    if len(lengths) != 1 or any(not np.isfinite(r).all() for r in series.values()):
+        return None, covered
+    n = lengths.pop()
     port = np.zeros(n)
     for t, r in series.items():
-        port += weights[t] * r[-n:]
-    return port, float(sum(weights[t] for t in series))
+        port += weights[t] * r
+    return port, covered
 
 
 # Below this share of the book covered by return series, portfolio-level
@@ -137,9 +156,13 @@ def _portfolio_return_series(weights: dict, returns: dict):
 _MIN_COVERAGE = 0.80
 
 
-def _return_based_metrics(weights, returns, benchmark_returns) -> dict:
+def _return_based_metrics(weights, returns, benchmark_returns, interval_days=None) -> dict:
     out = {}
     port, covered = _portfolio_return_series(weights, returns)
+    if port is None and covered:
+        return {"returns_coverage": round(covered, 3),
+                "alignment_note": "return arrays differ in length or contain invalid values; "
+                                  "common-date intervals required"}
     if port is None or len(port) < 20 or covered < _MIN_COVERAGE:
         if port is not None and covered < _MIN_COVERAGE:
             out["returns_coverage"] = round(covered, 3)
@@ -154,34 +177,41 @@ def _return_based_metrics(weights, returns, benchmark_returns) -> dict:
     if covered > 0:
         port = port / covered
 
-    # Parametric daily VaR/CVaR at 95% (historical percentile method)
-    var_95 = float(np.percentile(port, 5))
-    tail = port[port <= var_95]
-    cvar_95 = float(np.mean(tail)) if len(tail) else var_95
-    out["var_95_1d_pct"] = var_95 * 100
-    out["cvar_95_1d_pct"] = cvar_95 * 100
-    out["ann_volatility_pct"] = float(np.std(port)) * np.sqrt(252) * 100
+    daily = (interval_days is None or
+             (len(interval_days) == len(port) and all(to_number(d) == 1 for d in interval_days)))
+    if daily:
+        # Historical daily VaR/CVaR at 95%; direct legacy arrays assume daily intervals.
+        var_95 = float(np.percentile(port, 5))
+        tail = port[port <= var_95]
+        cvar_95 = float(np.mean(tail)) if len(tail) else var_95
+        out["var_95_1d_pct"] = var_95 * 100
+        out["cvar_95_1d_pct"] = cvar_95 * 100
+        out["ann_volatility_pct"] = float(np.std(port)) * np.sqrt(252) * 100
+    else:
+        out["interval_note"] = ("common close intervals span multiple business days or have "
+                                "invalid spacing; one-day VaR/CVaR and annualized volatility withheld")
 
     # Max drawdown over the window
-    equity = np.cumprod(1 + port)
+    equity = np.r_[1.0, np.cumprod(1 + port)]
     peak = np.maximum.accumulate(equity)
     out["max_drawdown_pct"] = float(np.min(equity / peak - 1)) * 100
 
     # Beta vs benchmark
     if benchmark_returns is not None and len(benchmark_returns) > 1:
         bench = np.asarray(benchmark_returns, dtype=float)
-        n = min(len(port), len(bench))
-        b, p = bench[-n:], port[-n:]
-        var_b = float(np.var(b, ddof=1))  # ddof=1 to match np.cov's sample covariance
-        if var_b > 0:
-            out["portfolio_beta"] = float(np.cov(p, b)[0, 1] / var_b)
+        if len(bench) != len(port) or not np.isfinite(bench).all():
+            out["benchmark_alignment_note"] = "benchmark intervals are not aligned; beta withheld"
+        else:
+            var_b = float(np.var(bench, ddof=1))
+            if var_b > 0:
+                out["portfolio_beta"] = float(np.cov(port, bench)[0, 1] / var_b)
 
     # Correlation structure — hidden concentration and true diversification
     tickers = [t for t in weights if t in returns and len(returns[t]) > 1]
-    n_bars = min((len(returns[t]) for t in tickers), default=0)
+    n_bars = len(port)
     high_corr = []
     if n_bars >= 20 and len(tickers) >= 2:
-        mat = np.array([np.asarray(returns[t], dtype=float)[-n_bars:] for t in tickers])
+        mat = np.array([np.asarray(returns[t], dtype=float) for t in tickers])
         corr = np.corrcoef(mat)
         pair_corrs = []
         for i in range(len(tickers)):

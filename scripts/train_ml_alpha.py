@@ -6,8 +6,8 @@ the "Machine Learning Alpha Extractor" lens from disabled to live:
     python scripts/train_ml_alpha.py
 
 ⚠️  THIS HITS THE NETWORK (yfinance + FRED). Per HARD RULE #1 it is therefore
-*never* imported by the test suite — tests build a tiny synthetic model
-in-memory instead. Running this is the user's call, like a live report.
+not executed by the test suite — tests import its pure split helpers and use
+synthetic samples. Running training is the user's call, like a live report.
 
 Downloads ~10y daily OHLCV for a ~120-name multi-region universe, builds
 technical features (app.skills.ml_features) and macro features
@@ -15,13 +15,13 @@ technical features (app.skills.ml_features) and macro features
 train/serve skew — labels each bar by whether the stock beats the S&P 500 over
 HORIZON_DAYS (relative return isolates stock-specific momentum from the
 market's own drift; raw direction gave no edge, see git history), validates
-with a time-series split, and saves {model, feature_names, metrics,
+with purged complete-date splits, and saves {model, feature_names, metrics,
 importances} to backend/app/models/ml_alpha_v1.joblib.
 
-Point-in-time correctness: every FRED observation is only treated as "known"
-MACRO_LAG_DAYS after its reference date, so a training sample never sees a
-CPI print before it was actually public. Live serving needs no such lag
-(today's snapshot only ever contains already-public data).
+FRED observations receive a conservative MACRO_LAG_DAYS publication lag.
+These are nevertheless latest revised histories, not historical vintages;
+this is NOT a fully point-in-time macro reconstruction. Validation groups
+whole dates and purges actual label end dates before every test window.
 """
 import bisect
 import datetime
@@ -39,13 +39,13 @@ from app.skills import ml_macro_features as macro_feat  # noqa: E402
 from app.skills import macro as macro_skill  # noqa: E402
 
 from app.skills.screener import CANDIDATE_LISTS  # noqa: E402
+from app.data.ml_model import VALIDATION_PROTOCOL, RESEARCH_LIMITATIONS  # noqa: E402
 
 # Comprehensive multi-region universe: a broad US large/mega-cap core PLUS the
 # screener's curated US/SG/HK/JP/KR candidate lists, so the model learns from
 # the same kinds of names it will score at inference across every market.
-# ponytail: single 20-day horizon + one HistGBM config with early stopping —
-# still one honest validated model, just trained wider/longer. Upgrade paths:
-# multiple horizons, purged walk-forward CV, hyperparameter search.
+# ponytail: one 60-session horizon and one HistGBM config; multiple horizons
+# and parameter search require separate purged evaluation if ever added.
 _US_CORE = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AVGO", "JPM", "V",
     "UNH", "HD", "PG", "MA", "COST", "XOM", "JNJ", "WMT", "KO", "PEP",
@@ -95,14 +95,18 @@ def _download(ticker: str):
     }
 
 
-def _spx_fwd_return(spx_dates, spx_closes, date, horizon: int) -> float | None:
-    """Forward HORIZON_DAYS return of the benchmark as of `date`, aligned by
-    nearest trading date (HK/JP/KR/SG calendars don't match the US exactly, so
-    an exact date match would drop most non-US samples)."""
+def _spx_fwd_return(spx_dates, spx_closes, date, end_date) -> tuple | None:
+    """Benchmark return over the stock's calendar window, plus actual end date.
+
+    The next US session is used at either endpoint when markets' calendars
+    differ. That endpoint is carried into purging, rather than assuming every
+    exchange's 60th session lands on the same date.
+    """
     i = bisect.bisect_left(spx_dates, date)
-    if i >= len(spx_dates) or i + horizon >= len(spx_dates):
+    j = bisect.bisect_left(spx_dates, end_date)
+    if i >= len(spx_dates) or j >= len(spx_dates) or j <= i or not spx_closes[i]:
         return None
-    return spx_closes[i + horizon] / spx_closes[i] - 1.0
+    return spx_closes[j] / spx_closes[i] - 1.0, spx_dates[j]
 
 
 def _fetch_macro_series(fred) -> dict:
@@ -137,8 +141,8 @@ def _asof_series(lagged_dates, lagged_values, as_of: datetime.date) -> dict | No
 
 
 def _macro_snapshot_asof(macro_lagged: dict, as_of: datetime.date) -> dict:
-    """Reconstruct a compute_macro()-shaped dict as of a historical date, using
-    ONLY data that would have been public by then (per MACRO_LAG_DAYS). Reuses
+    """Reconstruct a lagged compute_macro()-shaped dict as of a historical date.
+    Latest revised values remain a known historical-vintage limitation. Reuses
     macro.py's own _latest/_yoy_pct/_change_over — same functions the live app
     calls, so training and serving compute macro fields identically."""
     def s(sid):
@@ -163,8 +167,8 @@ def _macro_snapshot_asof(macro_lagged: dict, as_of: datetime.date) -> dict:
 
 
 def _build_samples():
-    """→ (dates, X, y) pooled across the universe. Each sample: technical
-    features at bar i (history ≤ i only) + point-in-time-safe macro features
+    """→ (dates, label_end_dates, X, y) pooled across the universe. Technical
+    features use history ≤ i only, plus lagged, latest-revised macro features
     as of that date, labelled by whether the stock's forward HORIZON_DAYS
     return beats the benchmark's, by more than DEAD_ZONE either way."""
     from app.data.base import DiskTTLCache
@@ -181,7 +185,7 @@ def _build_samples():
     macro_lagged = {sid: _lag_and_sort(series, MACRO_LAG_DAYS)
                     for sid, series in raw_macro.items()}
 
-    dates, rows, labels = [], [], []
+    dates, label_ends, rows, labels = [], [], [], []
     for ticker in UNIVERSE:
         bars = _download(ticker)
         if not bars:
@@ -196,9 +200,11 @@ def _build_samples():
                 continue  # drop rows with any NaN technical feature
             fwd_stock = c[i + HORIZON_DAYS] / c[i] - 1.0
             sample_date = bars["dates"][i].date()
-            fwd_spx = _spx_fwd_return(spx_dates, spx_closes, sample_date, HORIZON_DAYS)
-            if fwd_spx is None:
+            stock_end = bars["dates"][i + HORIZON_DAYS].date()
+            benchmark = _spx_fwd_return(spx_dates, spx_closes, sample_date, stock_end)
+            if benchmark is None:
                 continue
+            fwd_spx, benchmark_end = benchmark
             rel = fwd_stock - fwd_spx
             if abs(rel) < DEAD_ZONE:  # not a callable outperform/underperform
                 continue
@@ -206,11 +212,14 @@ def _build_samples():
             combined = {**technical, **macro_feat.from_macro_snapshot(macro_snapshot)}
             row = [combined.get(name, np.nan) for name in COMBINED_FEATURE_NAMES]
             dates.append(bars["dates"][i])
+            label_ends.append(max(stock_end, benchmark_end))
             rows.append(row)
             labels.append(1 if rel > 0 else 0)
             made += 1
         print(f"  {ticker}: {made} samples")
-    return np.array(dates), np.array(rows, dtype=float), np.array(labels, dtype=int)
+    return (np.array(dates, dtype="datetime64[D]"),
+            np.array(label_ends, dtype="datetime64[D]"),
+            np.array(rows, dtype=float), np.array(labels, dtype=int))
 
 
 def _new_model():
@@ -222,51 +231,71 @@ def _new_model():
         early_stopping=True, validation_fraction=0.15, random_state=0)
 
 
-def _validate(X, y):
+def purged_date_splits(dates, label_end_dates, n_splits: int = 5):
+    """Whole-date expanding folds; every training outcome ends before test starts."""
+    from sklearn.model_selection import TimeSeriesSplit
+
+    dates = np.asarray(dates, dtype="datetime64[D]")
+    ends = np.asarray(label_end_dates, dtype="datetime64[D]")
+    if len(dates) != len(ends) or np.isnat(dates).any() or np.isnat(ends).any() \
+            or (ends < dates).any():
+        raise ValueError("sample dates and outcome end dates must be valid and aligned")
+    unique_dates = np.unique(dates)
+    for train_dates, test_dates in TimeSeriesSplit(n_splits=n_splits).split(unique_dates):
+        first_test = unique_dates[test_dates[0]]
+        train = np.flatnonzero(np.isin(dates, unique_dates[train_dates]) & (ends < first_test))
+        test = np.flatnonzero(np.isin(dates, unique_dates[test_dates]))
+        if not len(train):
+            raise ValueError("not enough dated history after outcome purging")
+        yield train, test
+
+
+def importance_split(dates, label_end_dates):
+    """Last 20% of complete dates held out, with the same outcome-end purge."""
+    dates = np.asarray(dates, dtype="datetime64[D]")
+    ends = np.asarray(label_end_dates, dtype="datetime64[D]")
+    unique_dates = np.unique(dates)
+    if len(unique_dates) < 2 or len(dates) != len(ends) \
+            or np.isnat(dates).any() or np.isnat(ends).any() or (ends < dates).any():
+        raise ValueError("importance holdout requires valid sample and outcome dates")
+    first_test = unique_dates[min(int(len(unique_dates) * 0.8), len(unique_dates) - 1)]
+    train = np.flatnonzero((dates < first_test) & (ends < first_test))
+    test = np.flatnonzero(dates >= first_test)
+    if not len(train):
+        raise ValueError("not enough dated history for a purged importance holdout")
+    return train, test
+
+
+def _validate(X, y, dates, label_end_dates, names):
     """Time-ordered out-of-sample validation. Returns mean accuracy + AUC over
     the splits — the honest skill estimate the lens is required to report."""
     from sklearn.metrics import accuracy_score, roc_auc_score
-    from sklearn.model_selection import TimeSeriesSplit
 
     accs, aucs = [], []
-    for train_idx, test_idx in TimeSeriesSplit(n_splits=5).split(X):
+    for train_idx, test_idx in purged_date_splits(dates, label_end_dates):
+        X_train, kept_names = _drop_degenerate_columns(X[train_idx], names)
+        keep = [names.index(name) for name in kept_names]
+        if len(set(y[train_idx])) < 2 or not kept_names:
+            raise ValueError("training fold lacks two classes or usable features")
         m = _new_model()
-        m.fit(X[train_idx], y[train_idx])
-        proba = m.predict_proba(X[test_idx])[:, list(m.classes_).index(1)]
+        m.fit(X_train, y[train_idx])
+        proba = m.predict_proba(X[test_idx][:, keep])[:, list(m.classes_).index(1)]
         accs.append(accuracy_score(y[test_idx], (proba >= 0.5).astype(int)))
         if len(set(y[test_idx])) > 1:
             aucs.append(roc_auc_score(y[test_idx], proba))
     return {"accuracy": round(float(np.mean(accs)), 4),
             "auc": round(float(np.mean(aucs)), 4) if aucs else None,
-            "n_splits": 5, "positive_rate": round(float(np.mean(y)), 4)}
+            "n_splits": 5, "positive_rate": round(float(np.mean(y)), 4),
+            "protocol": VALIDATION_PROTOCOL,
+            "feature_selection": "training_slice_only"}
 
 
 def _drop_degenerate_columns(X, names: list[str]):
-    """Drop any column with fewer than 2 distinct non-NaN values, checked BOTH
-    globally AND within every TimeSeriesSplit(5) fold's train slice (the same
-    split _validate uses) — a column can look fine globally (e.g. the Fed dot
-    plot: 14 distinct values over the whole 10y panel) while still being 100%
-    NaN in the earliest fold alone, because that data barely existed that far
-    back. HistGradientBoostingClassifier's binning step crashes outright on a
-    fold that degenerate. Reports what it drops so a silently-thin macro
-    series doesn't go unnoticed."""
-    from sklearn.model_selection import TimeSeriesSplit
-
-    def n_unique(arr):
-        return len(np.unique(arr[~np.isnan(arr)]))
-
-    fold_train_idx = [train_idx for train_idx, _ in TimeSeriesSplit(n_splits=5).split(X)]
+    """Select usable columns from ONLY the supplied training slice."""
     keep_idx, kept_names = [], []
     for j, name in enumerate(names):
         col = X[:, j]
-        global_n = n_unique(col)
-        fold_ns = [n_unique(col[idx]) for idx in fold_train_idx]
-        worst = min([global_n] + fold_ns)
-        nan_frac = float(np.isnan(col).mean())
-        print(f"  {name:20} n_unique={global_n:5d}  min_fold_n_unique={min(fold_ns):5d}"
-              f"  nan_frac={nan_frac:.2%}"
-              + ("  -> DROPPED (degenerate in a fold)" if worst < 2 else ""))
-        if worst >= 2:
+        if len(np.unique(col[np.isfinite(col)])) >= 2:
             keep_idx.append(j)
             kept_names.append(name)
     return X[:, keep_idx], kept_names
@@ -277,28 +306,29 @@ def main():
     from sklearn.inspection import permutation_importance
 
     print(f"Downloading {len(UNIVERSE)} tickers x ~{YEARS}y daily...")
-    dates, X, y = _build_samples()
+    dates, label_ends, X, y = _build_samples()
     if len(y) < 500:
         raise SystemExit(f"only {len(y)} samples — too few to train credibly")
 
     order = np.argsort(dates)  # chronological pooled panel
-    X, y = X[order], y[order]
+    dates, label_ends, X, y = dates[order], label_ends[order], X[order], y[order]
     print(f"Total {len(y)} samples, {y.mean():.1%} positive.")
-    print("Feature diagnostics:")
-    X, feature_names = _drop_degenerate_columns(X, COMBINED_FEATURE_NAMES)
     print("Validating...")
-    metrics = _validate(X, y)
+    metrics = _validate(X, y, dates, label_ends, COMBINED_FEATURE_NAMES)
     print(f"  OOS accuracy={metrics['accuracy']} auc={metrics['auc']}")
 
     # Fit the shipped model on ALL data; importances via permutation on a
     # held-out tail so they reflect out-of-sample behaviour, not train fit.
     model = _new_model()
-    split = int(len(y) * 0.8)
-    model.fit(X[:split], y[:split])
-    perm = permutation_importance(model, X[split:], y[split:], n_repeats=10,
+    train, test = importance_split(dates, label_ends)
+    X_train, importance_names = _drop_degenerate_columns(X[train], COMBINED_FEATURE_NAMES)
+    keep = [COMBINED_FEATURE_NAMES.index(name) for name in importance_names]
+    model.fit(X_train, y[train])
+    perm = permutation_importance(model, X[test][:, keep], y[test], n_repeats=10,
                                   random_state=0)
     importances = {name: round(float(imp), 5)
-                   for name, imp in zip(feature_names, perm.importances_mean)}
+                   for name, imp in zip(importance_names, perm.importances_mean)}
+    X, feature_names = _drop_degenerate_columns(X, COMBINED_FEATURE_NAMES)
     model = _new_model()
     model.fit(X, y)  # final refit on everything for the artifact
 
@@ -308,6 +338,8 @@ def main():
         "feature_names": feature_names,
         "trained_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "validation_metrics": metrics,
+        "validation_protocol": VALIDATION_PROTOCOL,
+        "research_limitations": RESEARCH_LIMITATIONS,
         "feature_importances": importances,
         "horizon_days": HORIZON_DAYS,
         "universe": UNIVERSE,

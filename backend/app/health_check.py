@@ -13,12 +13,11 @@ import datetime
 import sys
 
 from .skills import portfolio_health
+from .skills.return_alignment import align_daily_returns
 
 
 def _daily_returns(bars):
-    closes = (bars or {}).get("closes") or []
-    return [closes[i] / closes[i - 1] - 1
-            for i in range(1, len(closes)) if closes[i - 1]]
+    return align_daily_returns({"asset": bars})["returns"].get("asset", [])
 
 
 def gather(sync_brokers: bool = False) -> dict:
@@ -51,7 +50,15 @@ def gather(sync_brokers: bool = False) -> dict:
         return {"positions": [], "equity_metrics": None}
 
     quotes = {h["ticker"]: live_quote(h["ticker"], reg.yahoo) or {} for h in holdings}
-    summary = portfolio_summary(holdings, quotes)
+    fx = {"USD": 1.0}
+    for ccy in {h.get("currency", "USD") for h in holdings} | \
+               {q.get("currency", "USD") for q in quotes.values()}:
+        if ccy != "USD":
+            fx[ccy] = reg.yahoo.fx_rate(ccy)
+    summary = portfolio_summary(holdings, quotes, fx_rates=fx)
+    if summary["errors"]:
+        return {"positions": [], "equity_metrics": None, "summary": summary,
+                "valuation_errors": summary["errors"]}
 
     positions, returns, benchmarks, bench_cache = [], {}, {}, {}
     for row in summary.get("holdings", []):
@@ -73,12 +80,13 @@ def gather(sync_brokers: bool = False) -> dict:
                 fund = fundamental_conviction(snap, f_score(years), years=years)
             except ImportError:
                 fund = None
-        returns[t] = _daily_returns(reg.yahoo.ohlcv(symbol, "1d", "2y"))
+        returns[t] = reg.yahoo.ohlcv(symbol, "1d", "2y")
         sym = pctx.benchmark_for_ticker(t)
         if sym and sym not in bench_cache:
-            bench_cache[sym] = _daily_returns(reg.yahoo.ohlcv(sym, "1d", "2y"))
+            bench_cache[sym] = reg.yahoo.ohlcv(sym, "1d", "2y")
         if sym:
             benchmarks[t] = bench_cache[sym]
+        aligned = align_daily_returns({t: returns[t]}, benchmarks.get(t))
         positions.append({
             "ticker": t,
             "company": row.get("company"),
@@ -89,8 +97,8 @@ def gather(sync_brokers: bool = False) -> dict:
             "sleeve": SLEEVE.get((stage or {}).get("stage"), {}).get("sleeve"),
             "fund_score": (fund or {}).get("score"),
             "fund_verdict": (fund or {}).get("verdict"),
-            "beta": pctx.beta(returns[t], benchmarks.get(t))
-                    if benchmarks.get(t) else None,
+            "beta": pctx.beta(aligned["returns"].get(t), aligned["benchmark_returns"])
+                    if aligned["benchmark_returns"] else None,
         })
 
     # Cash and money-market/short-bond funds sit OUTSIDE position_list_query,
@@ -119,7 +127,8 @@ def gather(sync_brokers: bool = False) -> dict:
     tickers = [p["ticker"] for p in positions]
     for i, a in enumerate(tickers):
         for b in tickers[i + 1:]:
-            c = pctx.correlation(returns.get(a), returns.get(b))
+            aligned = align_daily_returns({a: returns.get(a), b: returns.get(b)})["returns"]
+            c = pctx.correlation(aligned.get(a), aligned.get(b))
             if c is not None:
                 corr[(a, b)] = c
 
@@ -153,6 +162,9 @@ def money_weighted(current_value: float | None, pull_broker: bool = True,
     w0 = datetime.date.fromisoformat(rows[0]["date"])
     w1 = datetime.date.fromisoformat(rows[-1]["date"])
     opening = float(rows[0].get("value_usd") or 0)
+    terminal_value = float(rows[-1].get("value_usd") or 0)
+    if terminal_value <= 0:
+        return None
 
     # The measured portfolio is the SECURITIES BOOK: value_usd counts holdings
     # and carries no cash leg. So cash deployed from account cash into stock is
@@ -198,7 +210,7 @@ def money_weighted(current_value: float | None, pull_broker: bool = True,
                             "cash, not new money"))
 
     out = mwmod.money_weighted_return([(w0, opening)] + contributions,
-                                      current_value, as_of=w1)
+                                      terminal_value, as_of=w1)
     if out:
         out["source"] = ("securities-book flows (cost-basis deltas); "
                          + ("broker-verified external capital"
@@ -243,7 +255,7 @@ def _benchmark_return(reg, equity_metrics) -> float | None:
     """S&P 500 return over the SAME window the book's TWR covers. Without it
     "performance" is a raw number: +8% in a market that made 12% is a losing
     book, and only the excess figure says so."""
-    if not equity_metrics:
+    if not equity_metrics or equity_metrics.get("periods_excluded_sales", 0):
         return None
     try:
         import datetime
@@ -313,15 +325,6 @@ def format_report(rep: dict) -> str:
         out.append(f"  {'':22} {'':>8}   source: {mwr['source']}")
         if mwr.get("note"):
             out.append(f"  {'':22} {'':>8}   {mwr['note']}")
-        # The GAP is the signal: TWR measures the strategy, MWR measures what
-        # the owner earned given when money arrived.
-        if perf.get("twr_pct") is not None:
-            gap = mwr["mwr_annual_pct"] - perf["twr_pct"]
-            if abs(gap) > 1.0:
-                worse = "below" if gap < 0 else "above"
-                out.append(f"  {'':22} {'':>8}   MWR is {abs(gap):.1f}pp {worse} "
-                           f"TWR — money "
-                           f"{'arrived at bad moments' if gap < 0 else 'arrived well'}")
     out += ["", "RECOMMENDATIONS"]
     if not rep["recommendations"]:
         out.append("  None — the book is within every structural limit.")

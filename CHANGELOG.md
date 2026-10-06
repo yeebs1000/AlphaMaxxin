@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased] — financial correctness
+
+- Preserve currencies and full fractional quantities/costs on portfolio saves;
+  require complete explicitly selected broker snapshots before replacement.
+- Reject incomplete price/FX valuations from sizing, risk weights and equity
+  history; include starting capital in drawdown calculations.
+- Enforce final allocation caps with explicit cash remainder; align returns by
+  common close dates and convert foreign turnover into USD.
+- Purge forward-label windows across complete-date model splits and select
+  features on training folds; withhold legacy unpurged validation statistics.
+- Validate structured AI recommendations and render numeric tables from computed
+  inputs; retain free prose separately as unverified commentary.
+- Use unique report IDs, correct ledger references and concurrent-safe cache writes.
+- Add all model-routing roles/custom IDs, actual candle opens, isolated setup,
+  opt-in broker SDKs, frontend checks in CI and a synthetic offline report demo.
+
 ## [skills-v0.1.0] — 2026-10-06
 
 - Publish a skills-only ZIP with MIT licensing and SHA-256 checksums.

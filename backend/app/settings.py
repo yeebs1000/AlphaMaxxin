@@ -6,22 +6,13 @@ import os
 from pathlib import Path
 
 from .llm.router import DEFAULT_MODEL
+from .llm.analysts import ANALYSTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_FILE = str(REPO_ROOT / "data_store" / "settings.json")
 
 DEFAULT_SETTINGS = {
-    "models": {
-        "macro": DEFAULT_MODEL,
-        "fundamentals": DEFAULT_MODEL,
-        "technicals_options": DEFAULT_MODEL,
-        "news_catalysts": DEFAULT_MODEL,
-        "risk": DEFAULT_MODEL,
-        "order_book": DEFAULT_MODEL,
-        # Everything defaults to the cheap flash-lite tier; bump any role
-        # (synthesis especially) to gemini-3.6-flash in Settings when wanted.
-        "synthesis": DEFAULT_MODEL,
-    },
+    "models": {role: DEFAULT_MODEL for role in [*ANALYSTS, "synthesis"]},
     "llm_cache_enabled": True,
     # Which markets broad scans (Opportunist etc.) cover — the dashboard
     # toggles write here. Region-scoped presets (Dragon Watch…) ignore this.
@@ -29,9 +20,23 @@ DEFAULT_SETTINGS = {
 }
 
 
+def default_model() -> str:
+    """Choose defaults from configured providers; existing saved IDs still win."""
+    for key, model in (("GEMINI_API_KEY", DEFAULT_MODEL),
+                       ("ANTHROPIC_API_KEY", "claude-sonnet-4-6"),
+                       ("OPENAI_API_KEY", "gpt-4o-mini")):
+        if os.environ.get(key, "").strip():
+            return model
+    if os.environ.get("LOCAL_LLM_BASE_URL", "").strip():
+        model = os.environ.get("LOCAL_LLM_MODEL", "qwen3:14b").strip() or "qwen3:14b"
+        return model if model.startswith(("local/", "ollama/")) else f"local/{model}"
+    return DEFAULT_MODEL
+
+
 def load_settings(file_path=None) -> dict:
     file_path = file_path or SETTINGS_FILE
     settings = copy.deepcopy(DEFAULT_SETTINGS)
+    settings["models"] = {role: default_model() for role in [*ANALYSTS, "synthesis"]}
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             stored = json.load(f)

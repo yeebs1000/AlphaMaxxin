@@ -43,8 +43,11 @@ def beta(stock_daily: list, bench_daily: list,
          min_weeks: int = BETA_MIN_WEEKS) -> float | None:
     """Weekly beta vs the benchmark, or None when the sample is too short to
     mean anything (returning a number off 8 weeks would be false precision)."""
+    if len(stock_daily or []) != len(bench_daily or []) or any(
+            x is None for x in (stock_daily or []) + (bench_daily or [])):
+        return None
     r, b = weekly(stock_daily), weekly(bench_daily)
-    n = min(len(r), len(b))
+    n = len(r)
     if n < min_weeks:
         return None
     r, b = np.asarray(r[-n:], dtype=float), np.asarray(b[-n:], dtype=float)
@@ -58,7 +61,9 @@ def correlation(a_daily: list, b_daily: list,
                 min_bars: int = CORR_MIN_BARS) -> float | None:
     a = [x for x in (a_daily or []) if x is not None]
     b = [x for x in (b_daily or []) if x is not None]
-    n = min(len(a), len(b))
+    if len(a) != len(b) or len(a) != len(a_daily or []) or len(b) != len(b_daily or []):
+        return None
+    n = len(a)
     if n < min_bars:
         return None
     a, b = np.asarray(a[-n:], dtype=float), np.asarray(b[-n:], dtype=float)

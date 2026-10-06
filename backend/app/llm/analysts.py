@@ -34,6 +34,94 @@ def _bound_transport(json_mode: bool, max_output_tokens: int):
     return transport
 
 
+def _synthesis_errors(parsed, payload: dict) -> list[str]:
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("markdown"), str) \
+            or not parsed["markdown"].strip() or not isinstance(parsed.get("recommendations"), list):
+        return ["response did not parse as the expected JSON shape"]
+    errors, seen = [], set()
+    blocks = payload.get("recommendation_blocks") or {}
+    composites = payload.get("composites") or {}
+    summary = payload.get("summary") or {}
+    universe = set(blocks) | set(composites) | set(summary.get("tickers") or [])
+    universe.update(h["ticker"] for h in summary.get("holdings", []) if h.get("ticker"))
+    succeeded = [a for a in payload.get("analysts", []) if a.get("ok")]
+    stances = {a.get("stance") for a in succeeded}
+    conflict = bool(stances & {"supportive", "bullish"}) and bool(stances & {"cautious", "headwind", "bearish"})
+    ranks = {"none": 0, "low": 1, "medium": 2, "high": 3}
+    for rec in parsed["recommendations"]:
+        if not isinstance(rec, dict) or set(rec) - {"ticker", "action", "conviction", "size", "rationale"}:
+            errors.append("recommendation has unsupported fields or shape")
+            continue
+        ticker = rec.get("ticker")
+        if not isinstance(ticker, str) or ticker not in universe or ticker in seen:
+            errors.append("recommendation ticker is unknown or duplicated")
+            continue
+        seen.add(ticker)
+        action, conviction = rec.get("action"), rec.get("conviction")
+        if not isinstance(action, str) or not isinstance(conviction, str):
+            errors.append(f"{ticker}: action and conviction must be strings")
+            continue
+        if action not in {"buy", "accumulate", "hold", "reduce", "sell"}:
+            errors.append(f"{ticker}: invalid action")
+        if conviction not in ranks or conviction == "none":
+            errors.append(f"{ticker}: invalid conviction")
+        limit = ranks.get(composites.get(ticker, {}).get("conviction", "low"), 1)
+        if len(succeeded) < 3 or conflict:
+            limit = min(limit, 2)
+        if ranks.get(conviction, 0) > limit:
+            errors.append(f"{ticker}: conviction exceeds evidence coverage")
+        if not isinstance(rec.get("rationale", ""), str):
+            errors.append(f"{ticker}: invalid rationale")
+        block = blocks.get(ticker) or {}
+        if action in {"buy", "accumulate"}:
+            if summary.get("errors"):
+                errors.append(f"{ticker}: portfolio valuation is incomplete; allocation withheld")
+            from ..data.base import to_number
+            price, stop, base, bull = [to_number(block.get(k)) for k in
+                                      ("current_price", "bear_stop", "base_target", "bull_target")]
+            valid_levels = all(v is not None for v in (price, stop, base, bull)) \
+                and 0 < stop < price < base <= bull
+            if not valid_levels or block.get("red_lines") or block.get("size_tier", "Pass") == "Pass" \
+                    or conviction not in {"high", "medium"}:
+                errors.append(f"{ticker}: computed inputs veto a buy")
+            if rec.get("size") != block.get("size_tier"):
+                errors.append(f"{ticker}: size disagrees with computed tier")
+        elif "size" in rec and (not isinstance(rec["size"], str) or rec["size"] not in {"Full", "Half", "Starter", "Pass"}):
+            errors.append(f"{ticker}: invalid size")
+    return errors
+
+
+def recommendation_markdown(payload: dict, recommendations: list[dict]) -> str:
+    """Authoritative tables use computed fields; free model prose is kept separately."""
+    lines = ["# Report", "", "## Recommendations", "",
+             "| Ticker | Action | Conviction | Computed buy tier |",
+             "| --- | --- | --- | --- |"]
+    blocks = payload.get("recommendation_blocks") or {}
+    for rec in recommendations:
+        block = blocks.get(rec["ticker"]) or {}
+        tier = f"{block.get('size_tier', 'Pass')} ({block.get('suggested_weight_pct', 0)}%)"
+        lines.append(f"| {rec['ticker']} | {rec['action']} | {rec['conviction']} | {tier} |")
+    if not recommendations:
+        lines.append("\nNo validated recommendations this run.")
+    for ticker, b in blocks.items():
+        lines += ["", f"**{ticker}** — Entry {b['entry_range'][0]}–{b['entry_range'][1]} | "
+                  f"Base {b['base_target']} | Bull {b['bull_target']} | Stop {b['bear_stop']} | "
+                  f"R:R {b['risk_reward_base']} | Size: {b['size_tier']} {b['suggested_weight_pct']}% "
+                  f"(source: {b['target_source']}; native quote currency)"]
+        if b.get("red_lines"):
+            lines.append("Buy veto: " + "; ".join(b["red_lines"]))
+    lines += ["", "Sizing tiers are fixed research heuristics, not optimized allocations.",
+              "Model commentary is stored separately and is not fact-verified."]
+    if payload.get("lens_status"):
+        lines += ["", "## Coverage", ""]
+        for lens in payload["lens_status"]:
+            status = ("ran" if lens.get("ran") else "feed disabled" if not lens.get("enabled")
+                      else "not part of this preset" if not lens.get("in_preset")
+                      else "skipped: insufficient target data")
+            lines.append(f"- {lens['name']}: {status}")
+    return "\n".join(lines)
+
+
 ANALYST_TRANSPORT = _bound_transport(True, ANALYST_MAX_TOKENS)
 SYNTHESIS_TRANSPORT = _bound_transport(True, SYNTHESIS_MAX_TOKENS)
 
@@ -169,15 +257,24 @@ async def run_analyst(role: str, payload: dict, model: str,
         async with router.semaphore_for_model(model):
             result = await transport(system_prompt, user_prompt, model=model)
         was_cached = False
-        if cache and result.get("text"):
-            cache.put(key, result)
     if meter:
         meter.record(run_id, role, result.get("model", model),
                      result.get("in_tokens", 0), result.get("out_tokens", 0),
                      cached=was_cached)
 
-    parsed = extract_json(result.get("text", "")) or {}
-    ok = bool(parsed.get("narrative_md") or parsed.get("key_findings"))
+    parsed = extract_json(result.get("text", ""))
+    valid = (isinstance(parsed, dict)
+             and isinstance(parsed.get("narrative_md", ""), str)
+             and isinstance(parsed.get("key_findings", []), list)
+             and all(isinstance(f, str) for f in parsed.get("key_findings", []))
+             and isinstance(parsed.get("stance", "neutral"), str)
+             and parsed.get("stance", "neutral") in {"supportive", "neutral", "cautious", "headwind", "bullish", "bearish"}
+             and isinstance(parsed.get("confidence", "low"), str)
+             and parsed.get("confidence", "low") in {"low", "medium", "high"})
+    parsed = parsed if valid else {}
+    ok = bool(parsed.get("narrative_md") or parsed.get("key_findings")) and not result.get("error")
+    if ok and cache and not was_cached:
+        cache.put(key, result)
     error = result.get("error") if not ok else None
     if not ok and not error and result.get("text"):
         error = "response did not parse as the expected JSON shape"
@@ -212,23 +309,26 @@ async def run_synthesis(payload: dict, model: str,
         async with router.semaphore_for_model(model):
             result = await transport(system_prompt, user_prompt, model=model)
         was_cached = False
-        if cache and result.get("text"):
-            cache.put(key, result)
     if meter:
         meter.record(run_id, "synthesis", result.get("model", model),
                      result.get("in_tokens", 0), result.get("out_tokens", 0),
                      cached=was_cached)
 
-    parsed = extract_json(result.get("text", "")) or {}
-    markdown = parsed.get("markdown", "")
-    ok = bool(markdown)
+    parsed = extract_json(result.get("text", ""))
+    errors = _synthesis_errors(parsed, payload)
+    ok = not errors and not result.get("error")
+    parsed = parsed if ok else {}
+    if ok and cache and not was_cached:
+        cache.put(key, result)
     error = result.get("error") if not ok else None
     if not ok and not error and result.get("text"):
-        error = "response did not parse as the expected JSON shape"
+        error = "; ".join(errors)
     return {
         "ok": ok,
-        "markdown": markdown,
+        "markdown": recommendation_markdown(payload, parsed["recommendations"]) if ok else "",
+        "commentary_md": parsed.get("markdown", ""),
         "recommendations": parsed.get("recommendations", []),
+        "contract_errors": errors,
         "cached": was_cached,
         "model": result.get("model", model),
         "error": error,

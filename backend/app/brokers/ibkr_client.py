@@ -24,10 +24,10 @@ try:
 except ImportError:
     _IBKR_AVAILABLE = False
 
-IBKR_HOST = os.environ.get("IBKR_HOST", "127.0.0.1")
+IBKR_HOST = os.environ.get("IBKR_HOST") or "127.0.0.1"
 # 7497 = TWS paper, 7496 = TWS live, 4002 = IB Gateway paper, 4001 = IB Gateway live.
-IBKR_PORT = int(os.environ.get("IBKR_PORT", "7497"))
-IBKR_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID", "17"))
+IBKR_PORT = int(os.environ.get("IBKR_PORT") or "7497")
+IBKR_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID") or "17")
 # ib_async's connectAsync() handshake alone can legitimately take close to
 # 8 seconds against IB Gateway (it requests open/completed order state as
 # part of connecting, which reliably times out server-side before falling

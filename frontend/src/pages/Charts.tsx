@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, IChartApi } from "lightweight-charts";
 import { api, fmtPct } from "../api";
+import { toCandles } from "../chartData";
 
 const RANGES = ["1mo", "3mo", "6mo", "ytd", "1y", "5y"];
 
@@ -32,20 +33,22 @@ export default function Charts() {
   }, []);
 
   useEffect(() => {
-    api<any>(`/charts/history?ticker=${encodeURIComponent(ticker)}&range=${range}`)
+    const controller = new AbortController();
+    (chart.current as any)?._series?.setData([]);
+    setInfo({});
+    api<any>(`/charts/history?ticker=${encodeURIComponent(ticker)}&range=${range}`,
+             { signal: controller.signal })
       .then((d) => {
         const series = (chart.current as any)?._series;
-        if (!series) return;
-        const bars = d.timestamps.map((t: number, i: number) => ({
-          time: t as any, open: i ? d.closes[i - 1] : d.closes[i],
-          high: d.highs[i], low: d.lows[i], close: d.closes[i],
-        }));
+        if (!series || controller.signal.aborted) return;
+        const bars = toCandles(d);
         series.setData(bars);
         chart.current?.timeScale().fitContent();
         const first = d.closes[0], last = d.closes[d.closes.length - 1];
         setInfo({ name: d.name, ret: first ? ((last - first) / first) * 100 : 0 });
       })
-      .catch((e) => setInfo({ err: String(e) }));
+      .catch((e) => { if (!controller.signal.aborted) setInfo({ err: String(e) }); });
+    return () => controller.abort();
   }, [ticker, range]);
 
   return (

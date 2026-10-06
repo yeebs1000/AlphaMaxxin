@@ -1,6 +1,5 @@
 # AlphaMaxxin v2 backend dependencies.
-# The legacy desktop GUI's extra deps (customtkinter, matplotlib) stay in the
-# root requirements.txt until the v1 GUI is removed.
+# Broker SDKs are installed separately by the setup wizard when selected.
 fastapi
 uvicorn[standard]
 pydantic>=2
@@ -41,10 +40,7 @@ anthropic
 google-genai
 openai
 
-# Brokers (optional)
-moomoo-api
-ib_async
-tigeropen
+# Broker SDKs (moomoo-api, ib_async, tigeropen) are opt-in in setup.py.
 
 # Tests
 pytest

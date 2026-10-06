@@ -8,6 +8,7 @@ Portfolio.md
 external_holdings.json
 
 # Python
+.venv/
 __pycache__/
 *.pyc
 

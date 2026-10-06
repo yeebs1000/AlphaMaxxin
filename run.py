@@ -14,6 +14,11 @@ URL = "http://127.0.0.1:8000"
 
 
 def main():
+    project_python = os.path.join(HERE, ".venv", "Scripts" if os.name == "nt" else "bin",
+                                 "python.exe" if os.name == "nt" else "python")
+    if os.path.isfile(project_python) and os.path.normcase(os.path.abspath(sys.prefix)) != \
+            os.path.normcase(os.path.join(HERE, ".venv")):
+        raise SystemExit(subprocess.call([project_python, __file__, *sys.argv[1:]]))
     if "--check" in sys.argv:
         os.environ["ALPHAMAXXIN_OFFLINE"] = "1"
         sys.path.insert(0, HERE)
@@ -27,15 +32,16 @@ def main():
     dist = os.path.join(HERE, "frontend", "dist")
     if not os.path.isdir(dist):
         print("NOTE: frontend/dist not found -- the web UI hasn't been built.")
-        print("Run:  cd frontend && npm install && npm run build")
+        print("Run:  cd frontend && npm ci && npm run build")
         print("The API will still start at " + URL + "/docs")
 
     threading.Timer(1.5, lambda: webbrowser.open(URL)).start()
-    subprocess.run(
+    result = subprocess.run(
         [sys.executable, "-m", "uvicorn", "app.main:app",
          "--host", "127.0.0.1", "--port", "8000"],
         cwd=os.path.join(HERE, "backend"),
     )
+    raise SystemExit(result.returncode)
 
 
 if __name__ == "__main__":

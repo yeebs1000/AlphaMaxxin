@@ -190,7 +190,8 @@ async def test_run_synthesis():
     response = {"markdown": "# Report\nVerdict: hold.",
                 "recommendations": [{"ticker": "AAA", "action": "hold",
                                      "conviction": "medium", "rationale": "mixed"}]}
-    out = await analysts.run_synthesis({"analysts": []}, "claude-sonnet-4-6",
+    out = await analysts.run_synthesis({"analysts": [], "summary": {"tickers": ["AAA"]},
+                                        "composites": {"AAA": {"conviction": "medium"}}}, "claude-sonnet-4-6",
                                        transport=make_transport(response, calls))
     assert out["ok"] is True
     assert out["markdown"].startswith("# Report")
