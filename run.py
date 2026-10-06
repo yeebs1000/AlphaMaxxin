@@ -19,7 +19,7 @@ def main():
         sys.path.insert(0, HERE)
         from fastapi.testclient import TestClient
         from backend.app.main import create_app
-        response = TestClient(create_app()).get("/api/status")
+        response = TestClient(create_app(), base_url=URL).get("/api/status")
         assert response.status_code == 200, response.text
         print("OK -- app boots offline, /api/status responds.")
         return

@@ -7,11 +7,10 @@ Register with Claude Code (from the backend/ directory):
 
     claude mcp add alphamaxxin -- py -m app.mcp_server
 
-Every tool is read-only and costs $0 — they serve computed data from the free
-feeds (disk-cached). Deliberately NOT exposed: anything that spends LLM money
-(run_report) or changes state (watchlists, portfolio edits, scheduled tasks).
-An agent querying the workstation shouldn't be able to bill the user or
-mutate the book; those stay human-triggered in the app.
+Tools never place trades, edit holdings, or start LLM report runs. Feed
+queries may refresh local data caches; ledger scoring returns a snapshot
+without saving it. Watchlists, portfolio edits, and report generation stay
+in the app.
 """
 import json
 from pathlib import Path
@@ -23,6 +22,7 @@ BACKTEST_FILE = str(REPO_ROOT / "data_store" / "backtest_results.json")
 
 _READ_ONLY = {"readOnlyHint": True, "destructiveHint": False,
               "idempotentHint": True, "openWorldHint": False}
+_FEED_READ_ONLY = {**_READ_ONLY, "openWorldHint": True}
 
 mcp = FastMCP("alphamaxxin_mcp")
 
@@ -32,7 +32,7 @@ def _registry():
     return get_default_registry()
 
 
-@mcp.tool(annotations={"title": "Get portfolio", **_READ_ONLY})
+@mcp.tool(annotations={"title": "Get portfolio", **_FEED_READ_ONLY})
 def get_portfolio() -> dict:
     """Current holdings with live valuation: per-position value/weight/P&L in
     USD, day change, totals. Reads Portfolio.md (kept in sync from the
@@ -55,20 +55,21 @@ def get_portfolio() -> dict:
     return performance.portfolio_summary(holdings, quotes, fx_rates=fx)
 
 
-@mcp.tool(annotations={"title": "Get conviction ledger", **_READ_ONLY})
+@mcp.tool(annotations={"title": "Get conviction ledger", **_FEED_READ_ONLY})
 def get_ledger() -> dict:
     """Every recommendation the reports have made, scored against real prices:
     open/resolved entries, latest per-ticker levels (stop/target), and hit-rate
-    calibration by conviction level."""
+    calibration by conviction level. Scoring is returned as a snapshot and
+    does not change the saved ledger."""
     from .data.live_quote import live_quote
     from .reports import ledger
     registry = _registry()
-    data = ledger.score(lambda t: live_quote(t, registry.yahoo))
+    data = ledger.score(lambda t: live_quote(t, registry.yahoo), persist=False)
     return {"entries": data["entries"], "levels": data["levels"],
-            "summary": ledger.summary()}
+            "summary": ledger.summary(snapshot=data)}
 
 
-@mcp.tool(annotations={"title": "Get technicals for a ticker", **_READ_ONLY})
+@mcp.tool(annotations={"title": "Get technicals for a ticker", **_FEED_READ_ONLY})
 def get_technicals(ticker: str) -> dict:
     """Full technical snapshot for one ticker: indicators (RSI, MACD,
     SMAs/EMA, Bollinger, ATR, volume profile), candle patterns, the mechanical
@@ -85,7 +86,7 @@ def get_technicals(ticker: str) -> dict:
     return {"snapshot": snap, "strategy_panel": panel.get(snap["ticker"])}
 
 
-@mcp.tool(annotations={"title": "Get macro snapshot", **_READ_ONLY})
+@mcp.tool(annotations={"title": "Get macro snapshot", **_FEED_READ_ONLY})
 def get_macro() -> dict:
     """US macro backdrop from FRED + live markets: rates/curve, CPI & PPI,
     NFP, unemployment, Fed balance sheet, the Fed dot plot vs market pricing,
@@ -96,7 +97,7 @@ def get_macro() -> dict:
                                regions=["US", "HK", "SG", "JP", "KR"])
 
 
-@mcp.tool(annotations={"title": "Get supply-chain flow", **_READ_ONLY})
+@mcp.tool(annotations={"title": "Get supply-chain flow", **_FEED_READ_ONLY})
 def get_supply_chain() -> dict:
     """Tier momentum across curated value chains (memory/semis, data centers,
     optics, EV): median 3-month momentum per tier and early/late-cycle

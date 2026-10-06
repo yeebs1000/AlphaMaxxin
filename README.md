@@ -36,8 +36,9 @@ data feeds ──▶ deterministic skills ──▶ analyst lenses ──▶ 1 s
    congressional-trade lookups, position sizing with ATR stops.
 2. **Analyst lenses** (one cheap LLM call each): Macro, Fundamentals,
    Technicals & Options, News & Catalysts, Risk, Order Book & Liquidity, ML
-   Alpha. Each receives only compact JSON from the skills and is prompt-bound
-   to **never invent a number** — missing data is reported as missing.
+   Alpha. Each receives compact JSON from the skills and is prompted to
+   report missing data and use the supplied numbers. AI output still needs
+   verification against its sources.
    Lenses with no feasible free data feed stay disabled (not deleted) until
    one exists — shown as off in every report's Coverage section, costing
    zero tokens.
@@ -46,10 +47,9 @@ data feeds ──▶ deterministic skills ──▶ analyst lenses ──▶ 1 s
    explicit conflicts, and a coverage section listing what the report could
    *not* see.
 
-A full portfolio report costs a few cents, not tens of dollars: ~15–30K
-tokens versus the ~300K of the old 33-agent pipeline. Identical re-runs
-within 24h are served from a local cache for free, and a cost meter tracks
-every call.
+Report cost depends on the selected models, enabled lenses, and provider
+pricing. Identical re-runs within 24h use a local response cache, and a cost
+meter estimates usage for provider calls.
 
 ---
 
@@ -65,20 +65,24 @@ the app's deterministic Python skills and analyst pipeline run separately.
 
 ## Quickstart (first time on this computer)
 
-1. **Install Python** ([python.org/downloads](https://www.python.org/downloads/),
+1. **Install Python 3.11 or newer** ([python.org/downloads](https://www.python.org/downloads/),
    tick **"Add Python to PATH"** on Windows) and **Node.js**
-   ([nodejs.org](https://nodejs.org)) for the web interface.
+   ([nodejs.org](https://nodejs.org), version 24) for the web interface.
 2. **Download this project** — green **Code** button → **Download ZIP**,
    unzip (or `git clone`).
 3. **Run the setup wizard:**
    - **Windows:** double-click `start.bat`
-   - **Mac/Linux:** run `./start.sh`
+   - **Mac/Linux:** run `bash start.sh`
 
 The wizard checks Python, installs dependencies, walks you through the free
 API keys (all optional), builds the web UI, and offers to launch.
 
 **Already set up?** `python run.py` — the app opens in your browser at
 `http://127.0.0.1:8000`.
+
+The launcher binds to localhost. This is a personal desktop web app with
+an unauthenticated API, not an internet service; keep it on your own machine.
+See [Security and data handling](SECURITY.md) for the supported boundary.
 
 ---
 
@@ -89,7 +93,8 @@ what works:
 
 | Key | What it unlocks | Cost |
 |---|---|---|
-| Gemini or Claude (or OpenAI) | The analyst lenses + report writer | Gemini has a free tier; Claude is paid-per-use |
+| Gemini, Claude, or OpenAI | The analyst lenses + report writer | Provider pricing and quotas apply |
+| Local OpenAI-compatible model endpoint | The analyst lenses + report writer | Depends on your local setup |
 | Finnhub | News, earnings/IPO calendars, fundamentals fallback | Free tier |
 | Alpha Vantage | News with per-ticker sentiment scores | Free tier |
 | FRED | US macro data (works keyless too, a key is just politer) | Free |
@@ -97,7 +102,8 @@ what works:
 
 With no keys at all you still get: live prices and charts (Yahoo), the full
 deterministic dashboard (position guidance, risk metrics, screening), and
-broker sync. You need one LLM key for AI reports.
+broker sync, subject to provider availability and broker setup. AI reports
+need a configured cloud provider or local model endpoint.
 
 ---
 
@@ -126,9 +132,11 @@ directly. From the `backend/` directory:
 claude mcp add alphamaxxin -- py -m app.mcp_server
 ```
 
-Every tool is read-only and free (computed data from the cached feeds).
-Nothing that spends LLM money or mutates state is exposed — report runs and
-portfolio edits stay in the app.
+The MCP tools do not place trades, edit holdings, or start LLM report runs.
+Queries can fetch live data and expose portfolio details to the connected
+MCP client; provider access and entitlement rules still apply. Live queries
+may refresh local data caches. The conviction ledger query computes a
+current snapshot without changing the saved ledger.
 
 ---
 
@@ -142,6 +150,13 @@ is independent — configure any subset.
 No API key. Install and log into moomoo's [OpenD](https://www.moomoo.com/download/OpenAPI)
 gateway, then set `MOOMOO_HOST`/`MOOMOO_PORT` in `.env` if you changed
 OpenD's defaults (127.0.0.1:11111).
+
+AlphaMaxxin uses the Python SDK directly; vendor agent skills are not
+required or bundled. If you want those separate tools, follow the official
+[Moomoo Agent Hub installation guide](https://github.com/MoomooOpen/moomoo-agent-hub#quick-start)
+and install them in your personal agent setup. Those tools support order
+placement, modification, and cancellation; they are outside AlphaMaxxin's
+read-only broker integration. See [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 ### Interactive Brokers / IBKR (live)
 No API key. Requires **TWS** or **IB Gateway** running and logged in, with
@@ -178,8 +193,13 @@ To find quantity/cost-basis to copy in:
 - **Robinhood**: app → Account → History → Statements (monthly CSV with
   positions), or open a position's detail page for average cost.
 
-`Portfolio.md` and `external_holdings.json` are gitignored — your real
-holdings never leave this machine.
+`Portfolio.md`, `external_holdings.json`, `.env`, generated reports, and
+`data_store/` are gitignored to keep personal data out of normal commits.
+This does not prevent network transmission: data providers receive market
+queries, and cloud AI reports send computed context that can include your
+holdings, quantities, costs, values, and portfolio weights to the selected
+LLM provider. A local model endpoint processes that context at the address
+you configure. See [Security and data handling](SECURITY.md).
 
 ---
 
@@ -204,11 +224,25 @@ removed; it's preserved at the `v1-legacy` git tag if you ever need it.
 
 ## Contributing & testing
 
-The test suite is **fully offline and free to run** — `cd backend &&
-python -m pytest`. It never calls LLMs, data providers, or brokers
-(a tripwire makes any attempted network fetch fail the test). See
-[CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [MIT](LICENSE);
-release history in [CHANGELOG.md](CHANGELOG.md).
+The backend suite runs offline with fixtures and mocks; real provider calls
+are blocked by `ALPHAMAXXIN_OFFLINE=1`:
+
+```sh
+cd backend
+python -m pytest -q
+```
+
+From the repository root, `python run.py --check` verifies an offline app
+boot. The frontend build is `npm ci` followed by `npm run build` from
+`frontend/` (use `npm.cmd` in Windows PowerShell). Installing dependencies
+requires network access; these checks do not verify live broker connections
+or model responses. Routine development and CI do not use paid APIs. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+Original project code is licensed under [MIT](LICENSE). Dependencies and
+optional vendor tools retain their own licenses; see
+[Third-party notices](THIRD_PARTY_NOTICES.md). Release history is in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Troubleshooting
 
@@ -216,7 +250,8 @@ release history in [CHANGELOG.md](CHANGELOG.md).
 - **Browser shows nothing at 127.0.0.1:8000** — the web UI isn't built:
   `cd frontend && npm install && npm run build`, or use the API docs at
   `/docs` meanwhile.
-- **Reports don't generate** — you need at least one LLM key
-  (Gemini/Claude/OpenAI) in `.env`; re-run setup to add one.
+- **Reports don't generate** — configure a cloud LLM key
+  (Gemini/Claude/OpenAI) in `.env`, or set `LOCAL_LLM_BASE_URL` and select
+  a `local/...` model in Settings; re-run setup to change the configuration.
 - **No live broker positions** — the broker's gateway app (OpenD / TWS)
   must be running and logged in; prices fall back to Yahoo automatically.

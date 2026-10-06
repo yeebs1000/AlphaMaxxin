@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased] — public release preparation
+
+- Add ten Codex research skills under `.agents/skills`, with a supplied-data
+  signal calculator and offline regression tests.
+- Confine report reads and deletion to the reports directory, with traversal
+  and filesystem-link regression coverage.
+- Reject unsupported API Host names and browser mutation Origins before
+  running reports or changing local state.
+- Return MCP ledger scoring as a snapshot without rewriting saved outcomes,
+  and identify tools that query external market feeds.
+- Keep MCP on the compatible 1.x API and update the frontend's affected
+  development dependencies.
+- Match scikit-learn to the version that trained the committed ML artifact.
+- Use Node.js 24 in CI, check npm advisories, and scan full Git history for
+  credentials with a checksum-verified Gitleaks release.
+- Remove bundled vendor trading skills from the current distribution;
+  retain historical attribution and declared license terms in third-party
+  notices, and document optional installation from the vendor.
+- Explain localhost deployment and the portfolio context sent to configured
+  AI providers in the English and Chinese guides and security documentation.
+
 ## [Unreleased] — v2 rebuild
 
 Deterministic-first architecture: Python skills compute every number

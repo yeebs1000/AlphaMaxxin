@@ -9,7 +9,8 @@ sse-starlette
 numpy
 tenacity
 python-dotenv
-mcp
+# FastMCP is the MCP 1.x API; 2.x removes this import.
+mcp>=1.30,<2
 requests
 
 # Data providers (all optional at runtime, required for full functionality)
@@ -31,7 +32,8 @@ lxml
 # ML Alpha lens — trains/loads the offline gradient-boosting model. Optional:
 # the lens stays disabled if these aren't installed. joblib ships with
 # scikit-learn but is pinned explicitly since ml_model.py imports it directly.
-scikit-learn
+# Match the committed model artifact; retrain it before changing this version.
+scikit-learn==1.9.0
 joblib
 
 # LLM providers (optional at runtime — app runs deterministic-only without keys)

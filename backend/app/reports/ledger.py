@@ -100,10 +100,12 @@ def record(report: dict, file_path=None) -> int:
         return 0
 
 
-def score(quote_fn, file_path=None, today: datetime.date | None = None) -> dict:
+def score(quote_fn, file_path=None, today: datetime.date | None = None,
+          *, persist: bool = True) -> dict:
     """Resolve open entries against current prices. quote_fn(ticker) → quote
     dict or None. Buys resolve on target/stop/expiry; sells/reduces on expiry
-    only. Returns the updated ledger data."""
+    only. Returns the updated ledger data; persist=False leaves the file
+    unchanged for read-only snapshots."""
     today = today or datetime.date.today()
     data = _load(file_path)
     for e in data["entries"]:
@@ -127,14 +129,15 @@ def score(quote_fn, file_path=None, today: datetime.date | None = None) -> dict:
             e["status"] = "expired"
         if e["status"] != "open":
             e["resolved_date"] = today.isoformat()
-    _save(data, file_path)
+    if persist:
+        _save(data, file_path)
     return data
 
 
-def summary(file_path=None) -> dict:
+def summary(file_path=None, *, snapshot: dict | None = None) -> dict:
     """Calibration stats per conviction level. Hit rate = targets vs stops
     (buys only); expired entries contribute to avg return but not hit rate."""
-    data = _load(file_path)
+    data = snapshot if snapshot is not None else _load(file_path)
     by_conv: dict = {}
     for e in data["entries"]:
         c = by_conv.setdefault(e.get("conviction", "low"),

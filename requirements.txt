@@ -5,7 +5,8 @@
 anthropic
 google-genai
 openai
-mcp
+# Keep the root setup and backend on the same FastMCP-compatible major.
+mcp>=1.30,<2
 requests
 
 # Optional broker integrations — only needed if you set the matching .env

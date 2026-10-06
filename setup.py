@@ -75,9 +75,9 @@ def step_check_python():
     banner("STEP 1 of 5 -- Checking your Python version")
     version = sys.version_info
     print(f"Found Python {version.major}.{version.minor}.{version.micro}")
-    if (version.major, version.minor) < (3, 10):
+    if (version.major, version.minor) < (3, 11):
         print()
-        print("WARNING: This project needs Python 3.10 or newer.")
+        print("WARNING: This project needs Python 3.11 or newer.")
         print("Download the latest version from https://www.python.org/downloads/")
         print("then run this script again.")
         sys.exit(1)
