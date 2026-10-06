@@ -11,15 +11,22 @@ Turn the Alpha Maxxin prompt library into a research workflow sized to the user'
 
 | Question | Skill |
 |---|---|
-| Economic cycle, policy, China/Japan/Korea, regional context | `$alpha-macro` |
-| Yield curves, credit, currencies, commodities | `$alpha-rates-fx-commodities` |
-| Accounting, valuation, sector economics, supply chains | `$alpha-fundamentals` |
-| Price setups, volume, options, liquidity | `$alpha-technicals-liquidity` |
-| Alternative data, social sentiment, political disclosures | `$alpha-alternative-data` |
-| Earnings/events, IPOs, M&A, private capital | `$alpha-catalysts-capital` |
-| Predictive models, strategy backtests, factor attribution | `$alpha-quant-validation` |
-| Comparable directional scores and conflicting evidence | `$alpha-signal-synthesis` |
-| Holdings, sizing, hedges, financing, execution feasibility | `$alpha-portfolio-risk` |
+| Economic cycle, policy, China/Japan/Korea, regional context | `alpha-macro` |
+| Yield curves, credit, currencies, commodities | `alpha-rates-fx-commodities` |
+| Accounting, valuation, sector economics, supply chains | `alpha-fundamentals` |
+| Price setups, volume, options, liquidity | `alpha-technicals-liquidity` |
+| Alternative data, social sentiment, political disclosures | `alpha-alternative-data` |
+| Earnings/events, IPOs, M&A, private capital | `alpha-catalysts-capital` |
+| Predictive models, strategy backtests, factor attribution | `alpha-quant-validation` |
+| Comparable directional scores and conflicting evidence | `alpha-signal-synthesis` |
+| Holdings, sizing, hedges, financing, execution feasibility | `alpha-portfolio-risk` |
+
+Load relevant skills through the host's skill mechanism: `$alpha-macro` in Codex,
+`/alpha-macro` for a personal Claude Code skill, or
+`/alphamaxx-research:alpha-macro` for the Claude Code plugin. If direct routing is
+unavailable, read the relevant sibling folder's `SKILL.md` and its needed
+references. A separately installed specialist may be unavailable; report that
+limitation and work with the guidance and tools actually present.
 
 Use only available tools and relevant evidence. These are analytical capabilities; using this workflow does not itself require spawning agents, obtaining paid feeds, scheduling monitoring, or executing transactions.
 
@@ -35,7 +42,6 @@ Research conclusions may be provided without a strategy backtest. Label backtest
 
 Lead with the conclusion and its confidence. For a full review, include market regime, evidence/signal dashboard, ranked ideas only where supported, portfolio risk and cost findings, dated event watch, unresolved conflicts, and possible hedge tradeoffs. For a narrow request, keep only relevant parts. Distinguish completed checks from proposed work and unavailable checks. Never reproduce the source's sample PASS labels as results.
 
-Source adaptation: Prompts 0 and 27; the routing table covers every specialist prompt.
 
 ## Evidence and signal contract
 

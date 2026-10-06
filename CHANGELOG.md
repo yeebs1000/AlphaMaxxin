@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [skills-v0.1.0] — 2026-10-06
+
+- Publish a skills-only ZIP with MIT licensing and SHA-256 checksums.
+- Add Claude Code plugin metadata and a shared install guide for both clients.
+- Make research routing and calculator paths portable across installations.
+- State experimental research and product limitations in the public guide.
+
 ## [Unreleased] — public release preparation
 
 - Add ten Codex research skills under `.agents/skills`, with a supplied-data

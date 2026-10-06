@@ -29,7 +29,6 @@ Use user-specified evaluation criteria or propose explicit research criteria bef
 
 If no historical returns or model artifacts exist, offer a concrete test design and mark validation not performed. Do not report measured performance, PASS, fitted models, Sharpe, VaR or exact prediction probabilities. Research can proceed with an explicit unvalidated status.
 
-Source adaptation: Prompts 22 and 24.
 
 ## Evidence and signal contract
 

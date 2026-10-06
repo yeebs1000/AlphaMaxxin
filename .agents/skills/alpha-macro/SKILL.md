@@ -21,7 +21,6 @@ Translate each economic driver to the target asset: hawkish language can support
 
 Give a regional regime summary, recent evidence with release dates and revisions, priced versus unpriced policy scenarios, asset transmission channels, and top risks. Separate tactical policy/event effects from medium-term cycle and long-term structural conclusions. State unavailable market-implied pricing and avoid replacing it with the policy rate.
 
-Source adaptation: Prompts 1–7 and 11.
 
 ## Evidence and signal contract
 

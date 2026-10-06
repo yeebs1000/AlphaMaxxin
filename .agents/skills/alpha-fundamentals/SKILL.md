@@ -27,7 +27,6 @@ Use a suitable method (FCFF/FCFE DCF, dividend/residual income, asset/NAV, SOTP 
 
 Give the thesis, material accounting/operating evidence, valuation range and assumptions, peer/sector context, catalysts, risks, and falsification conditions. Mark model outputs as estimates. If historical factor returns or proprietary customer data are unavailable, do not invent factor regressions or exact supply-chain exposure.
 
-Source adaptation: Prompts 12, 13, 15 and 17.
 
 ## Evidence and signal contract
 

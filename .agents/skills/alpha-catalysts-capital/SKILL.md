@@ -27,7 +27,6 @@ For activist campaigns, distinguish disclosed ownership and proposals from board
 
 Give a sortable dated event table, thesis mechanism, priced expectation, scenario upside/downside, probability only if justified, confirmation status, and invalidation. Include financing and dilution impacts for corporate actions. Provide follow-up research needs without creating schedules or subscriptions unless requested.
 
-Source adaptation: Prompts 19, 20 and 21.
 
 ## Evidence and signal contract
 

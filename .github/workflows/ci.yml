@@ -42,6 +42,9 @@ jobs:
       - name: Compile all Python files
         run: python -m compileall -q .
 
+      - name: Build standalone skills from the repository
+        run: python scripts/build_skills_release.py --output-dir "$RUNNER_TEMP/alphamaxx-skills"
+
   backend-tests:
     runs-on: ubuntu-latest
     env:
