@@ -1,4 +1,4 @@
-# Root-level shared SDKs (LLM providers + brokers + MCP). The v2 backend's
+# Root-level shared SDKs (LLM providers + MCP). The v2 backend's
 # own dependency list lives at backend/requirements-backend.txt — installed
 # by setup.py / start.bat / start.sh. Direct dependencies only; pip resolves
 # the rest (the old pinned freeze here was a leftover from the removed v1 GUI).
@@ -9,9 +9,5 @@ openai
 mcp>=1.30,<2
 requests
 
-# Optional broker integrations — only needed if you set the matching .env
-# keys (see .env.example and README.md's "Linking your broker" section).
-# All fail soft (ImportError is caught) if you don't install them.
-moomoo-api
-ib_async
-tigeropen
+# Optional broker SDKs are installed individually by setup.py when selected.
+# moomoo-api, ib_async, tigeropen (see README.md for gateway/configuration).

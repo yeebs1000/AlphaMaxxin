@@ -1,7 +1,7 @@
 """ML Alpha inference — loads the offline-trained model artifact and scores one
 ticker's price history into a directional prediction. This is what promotes the
 "Machine Learning Alpha Extractor" from a disabled lens to a live one: the
-analyst narrates these real, validated model outputs, it never role-plays a
+analyst narrates these experimental model outputs, it never role-plays a
 model (see llm/prompts/ml_alpha.md).
 
 Pure local compute — reads a committed .joblib file and runs a forward pass. No
@@ -21,6 +21,12 @@ from ..skills import ml_macro_features as macro_feat
 
 ARTIFACT_PATH = Path(__file__).resolve().parent.parent / "models" / "ml_alpha_v1.joblib"
 _KNOWN_FEATURE_NAMES = set(feat.FEATURE_NAMES) | set(macro_feat.MACRO_FEATURE_NAMES)
+VALIDATION_PROTOCOL = "purged_date_groups_v1"
+RESEARCH_LIMITATIONS = [
+    "Current curated universe; survivorship bias is not controlled.",
+    "Latest revised FRED history with a uniform 45-day lag; historical vintages are unavailable.",
+    "Local-currency equity returns versus a USD benchmark; historical FX is not included.",
+]
 
 
 @lru_cache(maxsize=1)
@@ -45,6 +51,19 @@ def _load_bundle():
         # (technical-only and technical+macro artifacts are both valid shapes;
         # only an UNKNOWN name — a stale/foreign artifact — gets refused).
         return None
+    bundle = dict(bundle)
+    metrics = bundle.get("validation_metrics") or {}
+    purged = (bundle.get("validation_protocol") == VALIDATION_PROTOCOL
+              and metrics.get("protocol") == VALIDATION_PROTOCOL)
+    bundle["validation_status"] = "purged_date_validation" if purged else "experimental"
+    bundle["validation_note"] = (
+        "Purged whole-date validation; research limitations still apply."
+        if purged else "Legacy artifact lacks purged date-group validation; "
+                       "accuracy, AUC and holdout importances withheld. Predictions are experimental.")
+    if not purged:
+        bundle["validation_metrics"] = {}
+        bundle["feature_importances"] = {}
+    bundle.setdefault("research_limitations", RESEARCH_LIMITATIONS)
     return bundle
 
 
@@ -90,6 +109,9 @@ def predict(daily: dict | None, macro: dict | None = None) -> dict | None:
         "label": bundle.get("label"),
         "feature_importances": bundle.get("feature_importances", {}),
         "validation_metrics": bundle.get("validation_metrics", {}),
+        "validation_status": bundle["validation_status"],
+        "validation_note": bundle["validation_note"],
+        "research_limitations": bundle["research_limitations"],
         "trained_at": bundle.get("trained_at"),
         "horizon_days": bundle.get("horizon_days"),
         "bars_used": len(closes),

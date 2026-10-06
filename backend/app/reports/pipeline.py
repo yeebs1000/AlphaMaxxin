@@ -26,6 +26,9 @@ from ..skills import (
 )
 from . import ledger, store
 from .presets import get_preset
+from ..skills.return_alignment import align_daily_returns
+from ..skills.fx import usd_rate
+from ..data.base import to_number
 
 
 def resolve_target(target: dict) -> tuple[list[dict], str]:
@@ -109,13 +112,7 @@ def _fetch_per_ticker(registry, holdings: list[dict], emit) -> dict:
 
 
 def _returns_from_daily(daily: dict) -> dict:
-    out = {}
-    for ticker, bars in daily.items():
-        closes = (bars or {}).get("closes", [])
-        if len(closes) > 20:
-            out[ticker] = [(closes[i] - closes[i - 1]) / closes[i - 1]
-                           for i in range(1, len(closes)) if closes[i - 1]]
-    return out
+    return align_daily_returns(daily)["returns"]
 
 
 def run_skills(registry, preset: dict, holdings: list[dict], emit,
@@ -199,24 +196,33 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
 
     if "risk" in wanted:
         emit("skills", "Computing risk metrics", 58)
-        values_usd = {}
+        values_usd, valuation_errors, adv_usd = {}, [], {}
         for h in holdings:
             quote = fetched["quotes"].get(h["ticker"])
-            if quote and h.get("quantity"):
-                ccy = quote.get("currency", "USD")
-                values_usd[h["ticker"]] = (h["quantity"] * quote["price"]
-                                           * fetched["fx"].get(ccy, 1.0))
+            ccy = (quote or {}).get("currency") or h.get("currency", "USD")
+            rate = usd_rate(ccy, fetched["fx"])
+            price = to_number((quote or {}).get("price"))
+            if h.get("quantity"):
+                if price is None or price <= 0 or rate is None:
+                    valuation_errors.append(f"{h['ticker']}: price or FX unavailable")
+                else:
+                    values_usd[h["ticker"]] = h["quantity"] * price * rate
+            snap = out.get("technicals", {}).get(h["ticker"], {})
+            if snap.get("avg_volume_20d") and snap.get("last_close") and rate is not None:
+                adv_usd[h["ticker"]] = snap["avg_volume_20d"] * snap["last_close"] * rate
         bench = registry.yahoo.ohlcv("^GSPC", "1d", "1y")
-        adv_usd = {t: s["avg_volume_20d"] * s["last_close"]
-                   for t, s in out.get("technicals", {}).items()
-                   if s.get("avg_volume_20d") and s.get("last_close")}
+        aligned = align_daily_returns(fetched["daily"], bench)
         out["risk"] = risk_skill.compute_risk(
             holdings, values_usd,
-            returns=_returns_from_daily(fetched["daily"]),
-            benchmark_returns=_returns_from_daily({"^GSPC": bench}).get("^GSPC"),
+            returns=aligned["returns"], benchmark_returns=aligned["benchmark_returns"],
+            returns_basis=aligned["basis"],
+            return_interval_days=aligned["interval_business_days"],
             sectors={t: s.get("sector") for t, s in out.get("fundamentals", {}).items()
                      if s.get("sector")},
             adv_usd=adv_usd)
+        out["risk"]["return_alignment"] = {k: v for k, v in aligned.items()
+                                           if k not in {"returns", "benchmark_returns"}}
+        out["risk"]["valuation_errors"] = valuation_errors
 
     if "strategies" in wanted and out.get("technicals"):
         emit("skills", "Running strategy panel", 62)
@@ -257,12 +263,16 @@ def run_skills(registry, preset: dict, holdings: list[dict], emit,
                 sizing_by_ticker.get(t, {}).get("atr_stop"),
                 out.get("composites", {}).get(t))
             if block:
+                if out.get("summary", {}).get("errors"):
+                    block["size_tier"], block["suggested_weight_pct"] = "Pass", 0.0
+                    block["red_lines"].append("portfolio valuation incomplete; allocation withheld")
                 out["recommendation_blocks"][t] = block
 
     if "options_math" in wanted and registry.yfinance.available:
         emit("skills", "Summarizing option chains", 68)
         out["options"] = {}
-        returns_by_ticker = _returns_from_daily(fetched["daily"])
+        returns_by_ticker = {t: _returns_from_daily({t: bars}).get(t, [])
+                             for t, bars in fetched["daily"].items()}
         for t in tickers:
             chain = registry.yfinance.option_chain(fetched["symbols"].get(t, t))
             rets = returns_by_ticker.get(t)
@@ -418,7 +428,7 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     # this a weekday series, enabling book-level TWR/drawdown/Sharpe.
     if config.get("target", {}).get("kind", "portfolio") == "portfolio" \
             and skills.get("summary"):
-        equity_history.record(skills["summary"])
+        skills["equity_snapshot_recorded"] = equity_history.record(skills["summary"])
         skills["equity_history"] = equity_history.metrics()
 
     feed_status = registry.feed_status()
@@ -440,7 +450,7 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
     for lens in lens_status:
         lens["in_preset"] = lens["id"] in preset["analysts"]
         lens["ran"] = lens["id"] in roles
-    models = {**settings["models"], **config.get("model_overrides", {})}
+    models = {**load_settings()["models"], **settings["models"], **config.get("model_overrides", {})}
 
     emit("analysts", f"Running {len(roles)} analyst lenses", 72)
     kwargs = dict(cache=cache, meter=meter, run_id=run_id)
@@ -448,7 +458,7 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
         kwargs["transport"] = transport
     results = await asyncio.gather(*[
         an.run_analyst(role, _analyst_payload(role, skills, run_config),
-                       models.get(role, "gemini-3.5-flash"), **kwargs)
+                       models[role], **kwargs)
         for role in roles])
 
     emit("synthesis", "Writing the report", 88)
@@ -462,10 +472,12 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
         "run_config": run_config,
     }
     synthesis = await an.run_synthesis(
-        synthesis_payload, models.get("synthesis", "claude-sonnet-4-6"), **kwargs)
+        synthesis_payload, models["synthesis"], **kwargs)
     if not synthesis["ok"]:
         synthesis = {**synthesis,
-                    "markdown": _fallback_markdown(results, synthesis, run_config)}
+                    "markdown": an.recommendation_markdown(synthesis_payload, []) + "\n\n" +
+                                f"Synthesis unavailable: {synthesis.get('error') or 'invalid response'}.",
+                    "commentary_md": _fallback_markdown(results, synthesis, run_config)}
 
     emit("persist", "Saving report", 96)
     report = {
@@ -481,5 +493,6 @@ async def run_report(registry, config: dict, emit, cache=None, meter=None,
         "versions": {"schema": 1},
     }
     report_id = store.save_report(report, reports_dir=reports_dir)
+    report["id"] = report_id
     ledger.record(report)  # failure-soft; report is already saved
     return report_id

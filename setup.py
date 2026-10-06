@@ -8,8 +8,8 @@ Run this once after downloading/cloning the project:
 This script assumes you have never set this project up before and walks
 through every step: checking Python, installing dependencies, creating your
 personal .env file with API keys, and (optionally) launching the app at the
-end. Nothing here is destructive -- it only writes to .env and only after
-asking.
+end. It installs packages inside the project's .venv and preserves existing
+portfolio/configuration files unless you choose to update them.
 
 You do NOT need to understand what any of this means to run it. Just answer
 the prompts. Pressing Enter on an "optional" question skips it.
@@ -55,6 +55,23 @@ API_KEYS = [
      "US macro data (rates, CPI, jobs) for the Macro analyst. Works without a key too, just slower."),
 ]
 
+BROKER_PACKAGES = [("Moomoo/OpenD", "moomoo-api"), ("IBKR", "ib_async"),
+                   ("Tiger", "tigeropen")]
+
+
+def ensure_project_environment():
+    """Run setup in this project's virtual environment, creating it once."""
+    venv_dir = os.path.join(HERE, ".venv")
+    if os.path.normcase(os.path.realpath(sys.prefix)) == os.path.normcase(os.path.realpath(venv_dir)):
+        return
+    python = os.path.join(venv_dir, "Scripts" if os.name == "nt" else "bin",
+                          "python.exe" if os.name == "nt" else "python")
+    if not os.path.isfile(python):
+        print("Creating the project's isolated Python environment (.venv)...")
+        subprocess.run([sys.executable, "-m", "venv", venv_dir], cwd=HERE, check=True)
+    result = subprocess.run([python, os.path.join(HERE, "setup.py"), *sys.argv[1:]], cwd=HERE)
+    raise SystemExit(result.returncode)
+
 
 def banner(text):
     print()
@@ -88,29 +105,19 @@ def step_install_dependencies():
     banner("STEP 2 of 5 -- Installing dependencies")
     print("This downloads the Python packages AlphaMaxxin needs to run.")
     print("It can take a few minutes the first time -- that's normal.\n")
-    if not os.path.exists(REQUIREMENTS_PATH):
-        print("WARNING: requirements.txt not found -- skipping.")
-        print("(Did you download the whole repo, not just this file?)")
-        return
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", REQUIREMENTS_PATH],
-        cwd=HERE,
-    )
     backend_reqs = os.path.join(HERE, "backend", "requirements-backend.txt")
-    if result.returncode == 0 and os.path.exists(backend_reqs):
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", backend_reqs],
-            cwd=HERE,
-        )
-    if result.returncode != 0:
-        print()
-        print("WARNING: Something went wrong installing dependencies (see the error above).")
-        print("Common fix: make sure you're connected to the internet, then re-run")
-        print("this script. If it keeps failing, copy the error and ask for help.")
-        if not ask_yes_no("\nContinue with setup anyway?", default_yes=False):
-            sys.exit(1)
-    else:
-        print("\nOK -- dependencies installed.")
+    for path in (REQUIREMENTS_PATH, backend_reqs):
+        if not os.path.isfile(path):
+            print(f"Required file not found: {path}. Download the complete repository.")
+            raise SystemExit(1)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-r", path],
+                       cwd=HERE, check=True)
+    print("\nOK -- core dependencies installed inside .venv.")
+    print("Broker SDKs are optional. Install only the sources you intend to use.")
+    for label, package in BROKER_PACKAGES:
+        if ask_yes_no(f"Install the optional {label} broker SDK?", default_yes=False):
+            subprocess.run([sys.executable, "-m", "pip", "install", package],
+                           cwd=HERE, check=True)
 
 
 def _load_existing_env() -> dict:
@@ -131,9 +138,9 @@ def step_configure_env():
     print("Every key below is FREE to sign up for, and every one is OPTIONAL --")
     print("the app will run without any of them, just with fewer features.")
     print()
-    print("Recommended minimum: get ONE of Claude or Gemini so the AI agents")
-    print("actually have a brain to run on. Gemini has a free quota, so it's")
-    print("the easiest place to start if you've never done this before.")
+    print("Choose one supported AI provider: Claude, Gemini, OpenAI, or a local")
+    print("OpenAI-compatible endpoint. New model defaults follow configured keys;")
+    print("saved per-role choices stay unchanged and can be edited in Settings.")
     print()
     print("Your keys are saved only to a local '.env' file on this computer --")
     print("they are never uploaded anywhere by this script.")
@@ -163,26 +170,26 @@ def step_configure_env():
         elif current:
             new_values[env_var] = current  # keep existing, didn't type a new one
 
+    new_values.setdefault("MOOMOO_HOST", "127.0.0.1")
+    new_values.setdefault("MOOMOO_PORT", "11111")
     lines = [f"{k}={v}" for k, v in new_values.items()]
     lines.append("")
     lines.append("# Moomoo has no API key -- auth happens by logging into the OpenD")
     lines.append("# gateway app with your moomoo account. Port 11111 is OpenD's default.")
-    lines.append("MOOMOO_HOST=127.0.0.1")
-    lines.append("MOOMOO_PORT=11111")
 
     with open(ENV_PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
     got_any_llm = bool(new_values.get("ANTHROPIC_API_KEY") or new_values.get("GEMINI_API_KEY")
-                        or new_values.get("OPENAI_API_KEY"))
+                      or new_values.get("OPENAI_API_KEY") or new_values.get("LOCAL_LLM_BASE_URL"))
     print()
     if got_any_llm:
-        print("OK -- saved to .env. You have at least one LLM key, so the AI agents will work.")
+        print("OK -- saved to .env. An AI provider is configured; check model IDs")
+        print("and provider access in Settings before running a report.")
     else:
-        print("WARNING: saved to .env, but no LLM key was entered (Claude/Gemini/OpenAI).")
-        print("The app will still launch, but clicking 'Run Master Orchestrator' or")
-        print("any agent button won't produce a report until you add one. You can")
-        print("re-run this script anytime to add keys later.")
+        print("Saved to .env without an AI provider. The app and deterministic")
+        print("analysis can run; model-generated commentary needs a configured")
+        print("provider. Re-run setup to add keys, or configure a local endpoint.")
 
 
 def step_moomoo_note():
@@ -198,18 +205,21 @@ def step_moomoo_note():
     print()
     try:
         import moomoo  # noqa: F401
-        print("OK -- the moomoo-api Python package is installed (came with requirements.txt).")
+        print("OK -- the optional moomoo-api Python package is installed.")
     except ImportError:
-        print("(moomoo-api package not found -- should have installed with Step 2.)")
+        print("(Optional moomoo-api SDK not installed; choose it in Step 2 if needed.)")
     print("You don't need to do anything else right now -- set this up later if")
     print("you decide you want it.")
 
 
 def step_frontend_build():
-    """Build the web UI if Node.js is around and it hasn't been built yet."""
-    dist = os.path.join(HERE, "frontend", "dist")
+    """Install from the lockfile and stop setup if installation/build fails."""
     frontend = os.path.join(HERE, "frontend")
-    if os.path.isdir(dist) or not os.path.isdir(frontend):
+    if not os.path.isdir(frontend):
+        print("frontend/ is missing. Download the complete repository.")
+        raise SystemExit(1)
+    if not ask_yes_no("Build the web interface now? (needs Node.js and internet)", default_yes=True):
+        print("Web interface build skipped. The API can run; build the UI before using the browser app.")
         return
     npm = "npm.cmd" if os.name == "nt" else "npm"
     try:
@@ -218,13 +228,12 @@ def step_frontend_build():
         print()
         print("NOTE: Node.js/npm not found, so the web UI can't be built yet.")
         print("Install Node.js from https://nodejs.org, then run:")
-        print("    cd frontend && npm install && npm run build")
+        print("    cd frontend && npm ci && npm run build")
         print("(The backend API works without it; the browser UI needs it.)")
-        return
+        raise SystemExit(1)
     print()
-    if ask_yes_no("Build the web interface now? (needs internet, ~1 min)", default_yes=True):
-        subprocess.run([npm, "install", "--no-audit", "--no-fund"], cwd=frontend)
-        subprocess.run([npm, "run", "build"], cwd=frontend)
+    subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=frontend, check=True)
+    subprocess.run([npm, "run", "build"], cwd=frontend, check=True)
 
 
 def step_portfolio_check():
@@ -257,6 +266,7 @@ def main():
     print("and re-run this script later to pick up where you left off.")
 
     step_check_python()
+    ensure_project_environment()
     step_install_dependencies()
     step_configure_env()
     step_moomoo_note()
@@ -265,11 +275,12 @@ def main():
 
     banner("SETUP COMPLETE")
     print("To launch the app later, run:")
-    print("    python run.py")
+    print("    start.bat  (Windows) or ./start.sh  (Mac/Linux)")
+    print(f'    "{sys.executable}" run.py  (project .venv interpreter)')
     print("from inside this folder (opens in your browser).")
     print()
     if ask_yes_no("Launch AlphaMaxxin right now?", default_yes=True):
-        subprocess.run([sys.executable, os.path.join(HERE, "run.py")], cwd=HERE)
+        subprocess.run([sys.executable, os.path.join(HERE, "run.py")], cwd=HERE, check=True)
 
 
 if __name__ == "__main__":
@@ -278,3 +289,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nSetup stopped. Run 'python setup.py' again anytime to continue.")
         sys.exit(0)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"\nSetup stopped: {error}")
+        print("Resolve the failed step shown above, then run setup again.")
+        sys.exit(1)

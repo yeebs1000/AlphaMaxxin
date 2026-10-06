@@ -145,8 +145,12 @@ def _logo_html(title: str) -> str:
             f'alt="{ticker} logo" onerror="this.style.display=\'none\'">')
 
 
-def render_report_html(title: str, report_text: str) -> str:
+def render_report_html(title: str, report_text: str, commentary_md: str = "") -> str:
     body = _markdown_body_to_html(report_text)
+    commentary = ("<details><summary>Unverified model commentary</summary>"
+                  "<p>Check this commentary against the computed inputs.</p>" +
+                  _markdown_body_to_html(commentary_md) +
+                  "</details>") if commentary_md else ""
     generated = datetime.datetime.now().strftime("%B %d, %Y at %H:%M")
     safe_title = html_mod.escape(title)
     return f"""<!DOCTYPE html>
@@ -235,6 +239,7 @@ def render_report_html(title: str, report_text: str) -> str:
 </div>
 <div class="content">
 {body}
+{commentary}
 <div class="disclaimer">AI-generated research, not financial advice. Numbers
 come from the data feeds available at generation time and may be wrong,
 delayed, or incomplete. You are solely responsible for your investment

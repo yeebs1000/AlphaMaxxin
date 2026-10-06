@@ -68,6 +68,29 @@ def test_portfolio_put_then_get(client):
     assert got[0]["cost_price"] == pytest.approx(385.985)
 
 
+def test_portfolio_api_normalizes_currency(client):
+    response = client.put("/api/portfolio", json=[
+        {"company": "Toyota", "ticker": "7203.T", "quantity": 1, "currency": "jpy"}])
+    assert response.status_code == 200
+    assert response.json()["holdings"][0]["currency"] == "JPY"
+
+
+@pytest.mark.parametrize("endpoint", ["/api/portfolio", "/api/portfolio/external"])
+@pytest.mark.parametrize("change", [
+    {"company": "Alpha | Subsidiary"}, {"ticker": "A\nB"}, {"currency": "yen" * 2},
+])
+def test_portfolio_api_rejects_unrepresentable_rows_without_writing(client, endpoint, change):
+    row = {"company": "Microsoft", "ticker": "MSFT", "quantity": 2, "currency": "USD"}
+    assert client.put(endpoint, json=[row]).status_code == 200
+    path = pf.PORTFOLIO_FILE if endpoint == "/api/portfolio" else pf.EXTERNAL_HOLDINGS_FILE
+    with open(path, "rb") as saved:
+        original = saved.read()
+    response = client.put(endpoint, json=[{**row, **change}])
+    assert response.status_code == 422
+    with open(path, "rb") as saved:
+        assert saved.read() == original
+
+
 def test_external_holdings_roundtrip(client):
     rows = [{"company": "XYZ Holdings", "ticker": "xyz.si ", "quantity": 2000,
              "cost_price": 0.88, "currency": "SGD", "broker": "CDP (IPO)"},
@@ -139,3 +162,32 @@ def test_news_endpoint(client):
 def test_search(client):
     body = client.get("/api/search", params={"q": "micro"}).json()
     assert body["results"][0]["symbol"] == "MSFT"
+
+
+def test_sync_request_honors_empty_broker_selection(client, monkeypatch):
+    from app.brokers import moomoo_client, ibkr_client, tiger_client
+    for module, flag, function in [
+        (moomoo_client, "MOOMOO_AVAILABLE", "get_moomoo_positions"),
+        (ibkr_client, "IBKR_AVAILABLE", "get_ibkr_positions"),
+        (tiger_client, "TIGER_AVAILABLE", "get_tiger_positions"),
+    ]:
+        monkeypatch.setattr(module, flag, True)
+        monkeypatch.setattr(module, function, lambda: None)
+    monkeypatch.setattr(moomoo_client, "get_moomoo_positions", lambda: [{
+        "code": "US.REMOTE", "name": "Unselected broker position", "qty": 1,
+        "average_cost": 20}])
+    client.put("/api/portfolio/external", json=[{"ticker": "EX", "company": "External",
+                                                "quantity": 1, "cost_price": 20}])
+    response = client.post("/api/portfolio/sync", json={"broker_sources": []})
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert [h["ticker"] for h in client.get("/api/portfolio").json()["holdings"]] == ["EX"]
+
+
+def test_sync_request_rejects_unknown_broker(client, monkeypatch):
+    from app.brokers import moomoo_client, ibkr_client, tiger_client
+    monkeypatch.setattr(moomoo_client, "MOOMOO_AVAILABLE", False)
+    monkeypatch.setattr(ibkr_client, "IBKR_AVAILABLE", False)
+    monkeypatch.setattr(tiger_client, "TIGER_AVAILABLE", False)
+    response = client.post("/api/portfolio/sync", json={"broker_sources": ["unknown"]})
+    assert response.status_code == 422

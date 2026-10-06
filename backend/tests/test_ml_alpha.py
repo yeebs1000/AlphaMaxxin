@@ -106,9 +106,11 @@ def test_predict_shape_with_model(monkeypatch, tmp_path):
     pred = ml_model.predict(_bars())
     assert pred["prediction"] in ("outperform", "underperform")
     assert 0.0 <= pred["probability"] <= 1.0
-    assert pred["validation_metrics"]["accuracy"] == 0.55
+    assert pred["validation_metrics"] == {}  # unpurged fixture is experimental
+    assert pred["validation_status"] == "experimental"
+    assert "withheld" in pred["validation_note"]
     assert pred["trained_at"] == "2026-01-01T00:00:00+00:00"
-    assert set(pred["feature_importances"]) == set(feat.FEATURE_NAMES)
+    assert pred["feature_importances"] == {}  # legacy holdout was also unpurged
 
     out = ml_alpha.predict_targets(["MSFT", "AAPL"], {"MSFT": _bars(), "AAPL": _bars(n=50)})
     assert "MSFT" in out and "AAPL" not in out  # thin-history ticker just absent

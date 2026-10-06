@@ -19,22 +19,26 @@ def fundamental_score(snap: dict | None) -> int | None:
     produced (stale cache, hand-built fixture, future caller)."""
     if not snap:
         return None
-    score = 0
     flags = snap.get("quality_flags", [])
-    score -= 20 * len(flags)
-    rev_yoy = to_number((snap.get("growth") or {}).get("rev_yoy")) or 0
+    rev_yoy = to_number((snap.get("growth") or {}).get("rev_yoy"))
+    net = to_number((snap.get("margins") or {}).get("net"))
+    analyst = snap.get("analyst") or {}
+    target, price = to_number(analyst.get("target_mean")), to_number(snap.get("price"))
+    has_target = target is not None and price is not None and target > 0 and price > 0
+    if rev_yoy is None and net is None and not has_target and not flags:
+        return None
+    score = -20 * len(flags)
+    rev_yoy = rev_yoy if rev_yoy is not None else 0
     if rev_yoy > 0.15:
         score += 25
     elif rev_yoy > 0.05:
         score += 10
-    net = to_number((snap.get("margins") or {}).get("net")) or 0
+    net = net if net is not None else 0
     if net > 0.15:
         score += 20
     elif net > 0.05:
         score += 10
-    analyst = snap.get("analyst") or {}
-    target, price = to_number(analyst.get("target_mean")), to_number(snap.get("price"))
-    if target and price:
+    if has_target:
         upside = (target - price) / price
         if upside > 0.20:
             score += 25
@@ -58,7 +62,8 @@ def news_score(ticker: str, sentiment_by_ticker: dict | None) -> int | None:
 
 def risk_score(ticker: str, risk_report: dict | None) -> int | None:
     """−100..0 penalty from concentration/correlation involving this ticker."""
-    if not risk_report:
+    if not risk_report or risk_report.get("valuation_complete") is False \
+            or risk_report.get("weights", {}).get(ticker, 0) <= 0:
         return None
     score = 0
     weight = risk_report.get("weights", {}).get(ticker, 0.0)
@@ -129,7 +134,9 @@ def _size_tier(conviction: str, rr: float | None) -> dict:
     buckets (never LLM-invented) so the report can show one clear size per name.
     'Pass' = not actionable enough to recommend at all.
     ponytail: fixed weight buckets — recalibrate to your risk appetite."""
-    rr = rr or 0
+    rr = to_number(rr)
+    if rr is None or rr <= 0:
+        return {"label": "Pass", "weight_pct": 0.0}
     if conviction == "high" and rr >= 1.5:
         return {"label": "Full", "weight_pct": 5.0}
     if conviction == "high" or (conviction == "medium" and rr >= 2):
@@ -147,20 +154,23 @@ def recommendation_block(ticker: str, technical_snap: dict | None,
     from an already-computed real field (ATR, analyst consensus target, the
     sizing skill's ATR stop), never invented by an LLM. The synthesis
     prompt narrates this block; it doesn't set its own price levels."""
-    price = (technical_snap or {}).get("last_close")
-    atr = (technical_snap or {}).get("atr14")
-    if price is None or atr is None:
+    price = to_number((technical_snap or {}).get("last_close"))
+    atr = to_number((technical_snap or {}).get("atr14"))
+    if price is None or atr is None or price <= 0 or atr <= 0:
         return None
-    analyst_target = ((fundamentals_snap or {}).get("analyst") or {}).get("target_mean")
+    analyst_target = to_number(((fundamentals_snap or {}).get("analyst") or {}).get("target_mean"))
     bull_target = round(analyst_target, 2) if analyst_target else round(price + 3 * atr, 2)
     base_target = round((price + bull_target) / 2, 2)
-    stop = atr_stop if atr_stop is not None else round(price - 2 * atr, 2)
-    rr_base = round((base_target - price) / (price - stop), 2) if price > stop else None
+    stop = to_number(atr_stop) if atr_stop is not None else round(price - 2 * atr, 2)
+    rr_base = round((base_target - price) / (price - stop), 2) if stop is not None and price > stop > 0 else None
     conviction = (composite or {}).get("conviction", "low")
     red_lines = _red_lines(fundamentals_snap)
     # A tripped red line vetoes buy sizing outright — the synthesis prompt is
     # bound to it: no buy/accumulate on a "Pass" tier with red_lines present.
-    tier = {"label": "Pass", "weight_pct": 0.0} if red_lines \
+    score = to_number((composite or {}).get("composite_score"))
+    valid_long = (score is not None and score > 0 and stop is not None
+                  and 0 < stop < price < base_target <= bull_target)
+    tier = {"label": "Pass", "weight_pct": 0.0} if red_lines or not valid_long \
         else _size_tier(conviction, rr_base)
     return {
         "ticker": ticker,

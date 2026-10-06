@@ -460,7 +460,7 @@ def test_fundamental_score_survives_string_fields():
     snap = {"quality_flags": [], "growth": {"rev_yoy": "NaN"},
             "margins": {"net": "N/A"}, "analyst": {"target_mean": "Infinity"},
             "price": "50"}
-    assert signals.fundamental_score(snap) == 0  # no flags, all comparisons no-op
+    assert signals.fundamental_score(snap) is None  # no eligible evidence
 
 
 # ---------------------------------------------------------------------------

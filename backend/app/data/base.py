@@ -8,6 +8,7 @@ development and testing never call live APIs.
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -139,10 +140,14 @@ class DiskTTLCache:
         path = self._path(namespace, key)
         path.parent.mkdir(parents=True, exist_ok=True)
         entry = {"fetched_at": self._clock(), "ttl_s": ttl_s, "key": key, "payload": payload}
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(entry, f)
-        os.replace(tmp, path)
+        temporary = tempfile.NamedTemporaryFile("w", encoding="utf-8",
+                                               dir=path.parent, delete=False)
+        try:
+            with temporary as f:
+                json.dump(entry, f)
+            os.replace(temporary.name, path)
+        finally:
+            Path(temporary.name).unlink(missing_ok=True)
 
     def get_or_fetch(self, namespace: str, key: str, ttl_s: int, fetch: Callable[[], Any]) -> Any:
         cached = self.get(namespace, key)

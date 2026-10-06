@@ -128,3 +128,118 @@ def test_ibkr_outer_timeout_has_margin_over_connect_timeout():
     headroom for the positions() call and disconnect after connecting."""
     from app.brokers import ibkr_client
     assert ibkr_client._REQUEST_TIMEOUT >= ibkr_client._CONNECT_TIMEOUT + 5
+
+
+def test_save_preserves_mixed_currencies_and_fractional_values(tmp_path):
+    rows = [
+        {"company": ccy, "ticker": ccy, "quantity": 0.0000123456789,
+         "cost_price": 2700.123456789, "currency": ccy}
+        for ccy in ("HKD", "JPY", "CNY", "MYR", "SGD", "EUR", "USD")
+    ]
+    path = str(tmp_path / "Portfolio.md")
+    pf.save_portfolio(rows, file_path=path)
+    assert pf.parse_portfolio(path) == rows
+
+
+@pytest.mark.parametrize("company", ["TotalEnergies", "Company Holdings", "Example: Holdings", "US ETF"])
+def test_company_text_cannot_remove_a_holding_or_change_its_currency(tmp_path, company):
+    rows = [{"company": company, "ticker": "EX", "quantity": 0.125,
+             "cost_price": 10.12345, "currency": "SGD"}]
+    path = str(tmp_path / "Portfolio.md")
+    pf.save_portfolio(rows, file_path=path)
+    assert pf.parse_portfolio(path) == rows
+
+
+@pytest.mark.parametrize("writer, payload", [
+    (pf.save_portfolio, HOLDINGS),
+    (pf.save_external_holdings, {"EX": {"quantity": 1}}),
+])
+def test_failed_atomic_save_preserves_existing_file(tmp_path, monkeypatch, writer, payload):
+    path = tmp_path / "holdings"
+    path.write_bytes(b"previous authoritative holdings\r\n")
+
+    def fail_replace(*args):
+        raise OSError("disk replacement failed")
+
+    monkeypatch.setattr(pf.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="disk replacement failed"):
+        writer(payload, file_path=str(path))
+    assert path.read_bytes() == b"previous authoritative holdings\r\n"
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("selected", [None, ["moomoo", "ibkr"]])
+def test_partial_sync_failure_preserves_book_even_with_external_source(
+        tmp_path, monkeypatch, selected):
+    _patch_brokers(monkeypatch, ibkr=[{
+        "ticker": "MSFT", "company": "Microsoft", "quantity": 9,
+        "cost_price": 400.0, "currency": "USD"}])
+    from app.brokers import moomoo_client
+    monkeypatch.setattr(moomoo_client, "MOOMOO_AVAILABLE", True)
+    monkeypatch.setattr(moomoo_client, "get_moomoo_positions", lambda: None)
+    path = tmp_path / "Portfolio.md"
+    path.write_bytes(b"existing complete book\r\n")
+    ext = tmp_path / "external.json"
+    ext.write_text(json.dumps({"EX": {"quantity": 10, "cost_price": 25.5}}))
+    kwargs = {} if selected is None else {"broker_sources": selected}
+    result = pf.sync_from_brokers(external_path=str(ext), file_path=str(path), **kwargs)
+    assert result["success"] is False
+    assert "moomoo" in result["error"]
+    assert path.read_bytes() == b"existing complete book\r\n"
+
+
+def test_explicit_sync_ignores_unselected_installed_broker(tmp_path, monkeypatch):
+    _patch_brokers(monkeypatch, ibkr=[{
+        "ticker": "MSFT", "company": "Microsoft", "quantity": 9,
+        "cost_price": 400.0, "currency": "USD"}])
+    from app.brokers import moomoo_client
+    monkeypatch.setattr(moomoo_client, "MOOMOO_AVAILABLE", True)
+    monkeypatch.setattr(moomoo_client, "get_moomoo_positions", lambda: None)
+    path = tmp_path / "Portfolio.md"
+    result = pf.sync_from_brokers(external_path=str(tmp_path / "none.json"),
+                                  file_path=str(path), broker_sources=["ibkr"])
+    assert result["success"] is True
+    assert [h["ticker"] for h in pf.parse_portfolio(str(path))] == ["MSFT"]
+
+
+def test_explicit_unavailable_broker_preserves_book(tmp_path, monkeypatch):
+    _patch_brokers(monkeypatch)
+    path = tmp_path / "Portfolio.md"
+    path.write_bytes(b"existing book")
+    result = pf.sync_from_brokers(external_path=str(tmp_path / "none.json"),
+                                  file_path=str(path), broker_sources=["tiger"])
+    assert result["success"] is False
+    assert "tiger" in result["error"]
+    assert path.read_bytes() == b"existing book"
+
+
+def test_explicit_empty_selection_syncs_external_only(tmp_path, monkeypatch):
+    _patch_brokers(monkeypatch)
+    ext = tmp_path / "external.json"
+    ext.write_text(json.dumps({"EX": {"quantity": 10, "cost_price": 25.5}}))
+    path = tmp_path / "Portfolio.md"
+    result = pf.sync_from_brokers(external_path=str(ext), file_path=str(path),
+                                  broker_sources=[])
+    assert result["success"] is True
+    assert [h["ticker"] for h in pf.parse_portfolio(str(path))] == ["EX"]
+
+
+def test_shared_save_normalizes_currency_before_markdown_round_trip(tmp_path):
+    path = str(tmp_path / "Portfolio.md")
+    row = {**HOLDINGS[0], "currency": "jpy"}
+    pf.save_portfolio([row], file_path=path)
+    assert pf.parse_portfolio(path) == [{**row, "currency": "JPY"}]
+    assert row["currency"] == "jpy"  # no mutation of the caller's book
+
+
+@pytest.mark.parametrize("change", [
+    {"company": "Alpha | Subsidiary"}, {"company": "Alpha\nSubsidiary"},
+    {"ticker": "A|B"}, {"ticker": "A\rB"}, {"currency": "Japanese Yen"},
+])
+def test_unrepresentable_holding_is_rejected_before_replacing_book(tmp_path, change):
+    path = tmp_path / "Portfolio.md"
+    original = b"existing authoritative holdings\r\n"
+    path.write_bytes(original)
+    with pytest.raises(ValueError):
+        pf.save_portfolio([{**HOLDINGS[0], **change}], file_path=str(path))
+    assert path.read_bytes() == original

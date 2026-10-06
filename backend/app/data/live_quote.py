@@ -71,6 +71,7 @@ def live_ohlcv(ticker: str, yahoo, interval: str = "1d", range_: str = "1y") -> 
                 rows = get_moomoo_kline(ticker, ktype=ktype)
                 if rows:
                     return {"opens": [r["open"] for r in rows],
+                            "timestamps": [r.get("time") for r in rows],
                             "closes": [r["close"] for r in rows],
                             "highs": [r["high"] for r in rows],
                             "lows": [r["low"] for r in rows],

@@ -80,7 +80,7 @@ def test_stress_scenarios_beta_and_fx_legs():
 
 
 def test_stress_scenarios_without_returns_flags_assumed_beta():
-    report = risk.compute_risk(HOLDINGS, {"AAA": 1000.0})
+    report = risk.compute_risk(HOLDINGS[:1], {"AAA": 1000.0})
     assert all(s["beta_assumed"] for s in report["stress_scenarios"])
 
 
@@ -114,10 +114,10 @@ def test_diversification_ratio_one_bet_vs_spread():
 # ---------------------------------------------------------------------------
 # fx / performance
 # ---------------------------------------------------------------------------
-def test_fx_live_and_fallback():
+def test_fx_supplied_and_unavailable():
     assert fx.usd_rate("USD") == 1.0
     assert fx.usd_rate("SGD", {"SGD": 0.75}) == 0.75
-    assert fx.usd_rate("SGD", {}) == fx.FALLBACK_USD_PER["SGD"]
+    assert fx.usd_rate("SGD", {}) is None
     assert fx.to_usd(100, "SGD", {"SGD": 0.8}) == pytest.approx(80.0)
 
 
@@ -133,8 +133,10 @@ def test_portfolio_summary_totals():
     # cost: 500 + 400 + 100*5*0.75=375 → 1275
     assert s["total_cost_usd"] == pytest.approx(1275.0)
     assert s["total_pl_usd"] == pytest.approx(125.0)
-    # day change: 600*1% - 500*2% = -4
-    assert s["day_change_usd"] == pytest.approx(-4.0)
+    # Missing CCC daily change withholds the whole-book daily figure.
+    assert s["day_change_usd"] is None
+    assert s["holdings"][0]["day_change_usd"] == pytest.approx(600 / 101)
+    assert s["holdings"][1]["day_change_usd"] == pytest.approx(-1000 / 98)
     assert s["by_currency"]["SGD"] == pytest.approx(300.0)
     weights = {r["ticker"]: r["weight"] for r in s["holdings"]}
     assert sum(weights.values()) == pytest.approx(1.0)

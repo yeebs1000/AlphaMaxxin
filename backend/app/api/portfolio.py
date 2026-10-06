@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from typing import Literal
 
 from .. import portfolio as pf
 from ..data.live_quote import live_quote, live_ohlcv
@@ -16,9 +17,23 @@ class Holding(BaseModel):
     cost_price: float = 0.0
     currency: str = "USD"
 
+    @field_validator("company", "ticker")
+    @classmethod
+    def table_text(cls, value):
+        return pf.validate_table_text(value)
+
+    @field_validator("currency")
+    @classmethod
+    def currency_code(cls, value):
+        return pf.normalize_currency(value)
+
 
 class ExternalHolding(Holding):
     broker: str = "External"
+
+
+class SyncRequest(BaseModel):
+    broker_sources: list[Literal["moomoo", "ibkr", "tiger"]] | None = None
 
 
 def _quotes_for(registry, holdings: list[dict]) -> dict:
@@ -72,8 +87,8 @@ def put_external(holdings: list[ExternalHolding]):
 
 
 @router.post("/portfolio/sync")
-def sync_portfolio(registry=Depends(get_registry)):
-    result = pf.sync_from_brokers()
+def sync_portfolio(body: SyncRequest | None = None, registry=Depends(get_registry)):
+    result = pf.sync_from_brokers(broker_sources=body.broker_sources if body else None)
     if result["success"]:
         # Rewrite with live prices now that we know the merged holdings.
         pf.save_portfolio(result["holdings"],

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lite — DEMO | AlphaMaxxin</title>
+<style>
+  /* Light, editorial "research note" palette — deliberately distinct from
+     the app shell's theme (which the user toggles separately): a report
+     is a document meant to be read, printed, or shared, not a UI. Serif
+     headlines (Georgia/Palatino, no external font fetch needed) for a
+     consulting-report feel; the red brand accent stays consistent with
+     the rest of AlphaMaxxin either way. */
+  :root {
+    --bg: #faf9f5; --panel: #ffffff; --panel-2: #f3f1e9;
+    --border: rgba(30,28,20,.10); --text: #211f1b; --muted: #6b6a63;
+    --brand: #c0293f; --brand-bg: #f9e6e9;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.65; font-size: 15.5px; }
+  h1, h2, h3, .header h1 {
+    font-family: Georgia, 'Palatino Linotype', 'Iowan Old Style', 'Times New Roman', serif;
+  }
+  .header { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            padding: 32px 44px; background: var(--panel); border-bottom: 3px solid var(--brand); }
+  .header h1 { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+  .header .meta { color: var(--muted); font-size: 0.82rem; margin-top: 6px; }
+  .logo { height: 56px; width: 56px; border-radius: 10px; object-fit: contain;
+          background: white; padding: 4px; flex-shrink: 0;
+          border: 1px solid var(--border); }
+  .content { max-width: 860px; margin: 0 auto; padding: 36px 24px 72px; }
+  .content h1, .content h2 { color: var(--text); margin: 30px 0 12px;
+    border-bottom: 2px solid var(--brand); padding-bottom: 6px; font-size: 1.3rem;
+    font-weight: 700; }
+  .content h3 { color: var(--text); margin: 20px 0 8px; font-size: 1.08rem; font-weight: 700; }
+  p, li { margin: 7px 0; color: var(--text); }
+  li { margin-left: 24px; }
+  strong { color: var(--text); }
+  .tablewrap { overflow-x: auto; margin: 16px 0; border: 1px solid var(--border);
+               border-radius: 8px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th { background: var(--panel-2); color: var(--text); text-align: left;
+       text-transform: uppercase; font-size: 0.72rem; letter-spacing: .3px;
+       font-weight: 700; }
+  th, td { border-bottom: 1px solid var(--border); padding: 9px 12px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:nth-child(even) td { background: rgba(30,28,20,.025); }
+  tr:last-child td { border-bottom: none; }
+  .footnote { color: var(--muted); font-size: 0.82rem; }
+  .disclaimer { margin-top: 40px; padding: 14px 18px; background: var(--brand-bg);
+                border-left: 3px solid var(--brand); border-radius: 6px;
+                font-size: 0.8rem; color: var(--muted); }
+
+  /* Exported PDFs come from the browser's print dialog — make that path a
+     first-class output: clean page breaks, no wasted ink, readable margins. */
+  @media print {
+    @page { margin: 18mm 15mm; }
+    body { background: #fff; font-size: 11pt; line-height: 1.5; }
+    .header { padding: 0 0 12px; border-bottom: 2.5pt solid var(--brand);
+              background: #fff; }
+    .content { max-width: none; padding: 18px 0 0; }
+    .content h1, .content h2 { break-after: avoid; page-break-after: avoid; }
+    .content h3 { break-after: avoid; page-break-after: avoid; }
+    .tablewrap, table { break-inside: avoid; page-break-inside: avoid;
+                        overflow: visible; }
+    tr:nth-child(even) td { background: #f4f3ee !important;
+                            -webkit-print-color-adjust: exact;
+                            print-color-adjust: exact; }
+    th { background: #eceade !important; -webkit-print-color-adjust: exact;
+         print-color-adjust: exact; }
+    .disclaimer { break-inside: avoid; page-break-inside: avoid; }
+    .logo { border: none; }
+  }
+</style>
+</head>
+<body><p>SYNTHETIC OFFLINE DEMO — no live data or AI inference.</p>
+<div class="header">
+  <div>
+    <h1>Lite — DEMO</h1>
+    <div class="meta">AlphaMaxxin research report — generated October 06, 2026 at 23:07</div>
+  </div>
+
+</div>
+<div class="content">
+<h1>Report</h1>
+<br>
+<h2>Recommendations</h2>
+<br>
+<div class="tablewrap"><table>
+<tr><th>Ticker</th><th>Action</th><th>Conviction</th><th>Computed buy tier</th></tr>
+<tr><td>DEMO</td><td>hold</td><td>low</td><td>Half (3.0%)</td></tr>
+</table></div>
+<br>
+<p><strong>DEMO</strong> — Entry 99.72–101.72 | Base 110.36 | Bull 120.0 | Stop 96.72 | R:R 2.41 | Size: Half 3.0% (source: analyst consensus; native quote currency)</p>
+<br>
+<p>Sizing tiers are fixed research heuristics, not optimized allocations. Model commentary is stored separately and is not fact-verified.</p>
+<br>
+<h2>Coverage</h2>
+<br>
+<li><strong>Macro Analyst:</strong> not part of this preset</li>
+<li><strong>Fundamentals Analyst:</strong> ran</li>
+<li>Technicals &amp; Options Analyst: ran</li>
+<li>News &amp; Catalysts Analyst: not part of this preset</li>
+<li><strong>Risk Analyst:</strong> ran</li>
+<li>Order Book &amp; Liquidity Profiler: feed disabled</li>
+<li><strong>Machine Learning Alpha Extractor:</strong> not part of this preset</li>
+<li><strong>Alternative Data Analyst:</strong> not part of this preset</li>
+<li>Digital Footprint &amp; Developer Momentum Scanner: not part of this preset</li>
+<details><summary>Unverified model commentary</summary><p>Check this commentary against the computed inputs.</p><p>Synthetic example; no real company or model inference.</p></details>
+<div class="disclaimer">AI-generated research, not financial advice. Numbers
+come from the data feeds available at generation time and may be wrong,
+delayed, or incomplete. You are solely responsible for your investment
+decisions.</div>
+</div>
+</body>
+</html>

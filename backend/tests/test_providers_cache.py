@@ -1,6 +1,8 @@
 """Unit tests for the data-layer plumbing: disk cache, rate limiter, and the
 offline tripwire that guarantees tests can never hit the network."""
 import pytest
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from app.data.base import DiskTTLCache, OfflineError, RateLimiter, http_get_json, to_number
 from app.data.yahoo import YahooProvider
@@ -95,6 +97,36 @@ def test_cache_keys_do_not_collide(tmp_path):
     assert cache.get("ns", "key1") == "v1"
     assert cache.get("ns", "key2") == "v2"
     assert cache.get("other", "key1") == "v3"
+
+
+def test_simultaneous_same_key_writes_both_complete(tmp_path, monkeypatch):
+    from app.data import base
+    cache = DiskTTLCache(root=tmp_path)
+    rendezvous, first_done, lock = threading.Barrier(2), threading.Event(), threading.Lock()
+    replace = base.os.replace
+    order = []
+
+    def interleaved_replace(src, dst):
+        with lock:
+            second = bool(order)
+            order.append(src)
+        rendezvous.wait(timeout=5)
+        if second:
+            assert first_done.wait(timeout=5)
+            return replace(src, dst)
+        try:
+            return replace(src, dst)
+        finally:
+            first_done.set()
+
+    monkeypatch.setattr(base.os, "replace", interleaved_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(cache.put, "quotes", "MSFT", {"price": price}, 60)
+                   for price in (400, 401)]
+        for future in futures:
+            future.result()
+    assert cache.get("quotes", "MSFT") in ({"price": 400}, {"price": 401})
+    assert len(list((tmp_path / "quotes").iterdir())) == 1
 
 
 # ---------------------------------------------------------------------------

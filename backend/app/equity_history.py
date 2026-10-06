@@ -11,9 +11,12 @@ per-run-day; gaps (weekends, missed days) are treated as single periods.
 import datetime
 import json
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
+
+from .data.base import to_number
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EQUITY_FILE = str(REPO_ROOT / "data_store" / "equity_history.json")
@@ -39,26 +42,54 @@ _SALE_MATERIALITY = 0.005
 
 
 def record(summary: dict, file_path=None,
-           today: datetime.date | None = None) -> None:
-    """Upsert today's snapshot from a portfolio_summary(). Failure-soft and
-    idempotent per day (last run of the day wins)."""
+           today: datetime.date | None = None) -> bool:
+    """Upsert a complete valuation; reject gaps without changing history.
+    Failure-soft and idempotent per day (last complete run wins)."""
     try:
-        value = summary.get("total_value_usd")
-        if not value or value <= 0:
-            return
+        value = to_number(summary.get("total_value_usd"))
+        cost = to_number(summary.get("total_cost_usd"))
+        if summary.get("errors") or value is None or value <= 0 or cost is None:
+            return False
         today = today or datetime.date.today()
-        rows = [r for r in _load(file_path) if r.get("date") != today.isoformat()]
+        path = _path(file_path)
+        # _load is failure-soft for reads. A write must distinguish missing
+        # history from unreadable/corrupt history rather than erase old rows.
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except FileNotFoundError:
+            history = []
+        if not isinstance(history, list):
+            return False
+        dates = set()
+        for row in history:
+            if not isinstance(row, dict):
+                return False
+            day = datetime.date.fromisoformat(row["date"]).isoformat()
+            old_value = to_number(row.get("value_usd"))
+            if day != row["date"] or day in dates or old_value is None or old_value <= 0 \
+                    or to_number(row.get("cost_usd")) is None:
+                return False
+            dates.add(day)
+        rows = [r for r in history if r["date"] != today.isoformat()]
         rows.append({"date": today.isoformat(),
                      "value_usd": round(value, 2),
-                     "cost_usd": round(summary.get("total_cost_usd") or 0, 2),
+                     "cost_usd": round(cost, 2),
                      "holdings_count": summary.get("holdings_count")})
         rows.sort(key=lambda r: r["date"])
-        path = _path(file_path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(rows, f, indent=1)
+        temporary = tempfile.NamedTemporaryFile("w", encoding="utf-8",
+                                               dir=Path(path).parent, delete=False)
+        try:
+            with temporary as f:
+                json.dump(rows, f, indent=1)
+            os.replace(temporary.name, path)
+        finally:
+            Path(temporary.name).unlink(missing_ok=True)
+        return True
     except Exception as e:  # noqa: BLE001 — never sink a report run
         print(f"[equity] snapshot failed (run unaffected): {e}")
+        return False
 
 
 def metrics(file_path=None) -> dict | None:
@@ -91,7 +122,7 @@ def metrics(file_path=None) -> dict | None:
     if len(rets) < 4:
         return None                       # nothing honest left to report
 
-    equity = np.cumprod(1 + rets)
+    equity = np.concatenate(([1.0], np.cumprod(1 + rets)))
     peak = np.maximum.accumulate(equity)
 
     mean, std = float(np.mean(rets)), float(np.std(rets, ddof=1))

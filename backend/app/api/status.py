@@ -16,7 +16,7 @@ def _gateway_status(available: bool, host: str, port: int,
     if not available:
         return {"connected": False,
                 "reason": f"{package} package not installed — "
-                          "pip install -r backend/requirements-backend.txt"}
+                          "re-run setup.py and select that broker SDK"}
     if os.environ.get("ALPHAMAXXIN_OFFLINE") == "1":
         return {"connected": False, "reason": "gateway probe skipped (offline mode)"}
     import socket
@@ -44,7 +44,10 @@ def _ibkr_status() -> dict:
 
 def _tiger_status() -> dict:
     try:
-        from ..brokers.tiger_client import TIGER_AVAILABLE
+        from ..brokers.tiger_client import TIGER_AVAILABLE, _TIGER_AVAILABLE
+        if not _TIGER_AVAILABLE:
+            return {"connected": False, "reason": "tigeropen package not installed — "
+                    "re-run setup.py and select Tiger"}
         if TIGER_AVAILABLE:
             return {"connected": True, "reason": None}
         return {"connected": False,
@@ -53,7 +56,7 @@ def _tiger_status() -> dict:
     except ImportError:
         return {"connected": False,
                 "reason": "tigeropen package not installed — "
-                          "pip install -r backend/requirements-backend.txt"}
+                          "re-run setup.py and select Tiger"}
 
 
 @router.get("/status")

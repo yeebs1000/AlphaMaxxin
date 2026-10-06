@@ -32,8 +32,8 @@ try:
 except ImportError:
     _MOOMOO_AVAILABLE = False
 
-MOOMOO_HOST = os.environ.get("MOOMOO_HOST", "127.0.0.1")
-MOOMOO_PORT = int(os.environ.get("MOOMOO_PORT", "11111"))
+MOOMOO_HOST = os.environ.get("MOOMOO_HOST") or "127.0.0.1"
+MOOMOO_PORT = int(os.environ.get("MOOMOO_PORT") or "11111")
 _REQUEST_TIMEOUT = 5  # max time we personally wait for any one quote call
 
 # Singapore Exchange names traded from Portfolio.md — everything else is routed US.

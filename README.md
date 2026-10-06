@@ -49,10 +49,11 @@ data feeds ──▶ deterministic skills ──▶ analyst lenses ──▶ 1 s
    Lenses with no feasible free data feed stay disabled (not deleted) until
    one exists — shown as off in every report's Coverage section, costing
    zero tokens.
-3. **Synthesis** (one better-tier call): merges the lenses into a
-   decision-ready report — verdict, recommendation table, per-lens case,
-   explicit conflicts, and a coverage section listing what the report could
-   *not* see.
+3. **Synthesis** (one call): proposes structured actions. Code validates ticker,
+   action, conviction, size, stop ordering and distress vetoes, then renders
+   the numeric recommendation table from computed inputs. Invalid responses
+   produce a mechanical fallback. Free model prose is stored separately as
+   `commentary_md` in the report JSON and remains unverified.
 
 Report cost depends on the selected models, enabled lenses, and provider
 pricing. Identical re-runs within 24h use a local response cache, and a cost
@@ -83,8 +84,32 @@ the app's Python analytics and analyst pipeline run separately.
    - **Windows:** double-click `start.bat`
    - **Mac/Linux:** run `bash start.sh`
 
-The wizard checks Python, installs dependencies, walks you through the free
-API keys (all optional), builds the web UI, and offers to launch.
+The wizard creates a project `.venv`, installs dependencies there, walks you
+through optional API keys and broker SDKs, builds the web UI with `npm ci`,
+and offers to launch. Installation/build failures stop setup. Existing
+configuration and holdings are preserved. The launcher reuses `.venv`.
+
+Fresh model settings follow your configured provider. All nine analyst roles
+and synthesis support editable model IDs, including OpenAI and `local/...`;
+saved choices take precedence. Set `LOCAL_LLM_MODEL` for a custom local default.
+
+Try the [synthetic sample report](examples/offline-report.html), or regenerate it
+with `.venv` Python:
+
+```powershell
+.venv\Scripts\python.exe scripts/demo_report.py
+```
+
+On macOS/Linux use `.venv/bin/python scripts/demo_report.py`. This uses synthetic
+dated prices and canned analyst responses, makes no network/model/broker calls,
+and writes to `data_store/demo/`. Open its `offline-report.html` in your browser.
+It demonstrates software behavior, not investment performance.
+
+Broker sync replaces the book only when every explicitly selected source
+succeeds. Select all brokers whose holdings belong in that replacement;
+selecting none intentionally produces an external-holdings-only book. A failed
+selected source preserves the saved book. Missing price/FX data withholds sizing
+and history snapshots; dashboard values are then labeled as priced subtotals.
 
 **Already set up?** `python run.py` — the app opens in your browser at
 `http://127.0.0.1:8000`.

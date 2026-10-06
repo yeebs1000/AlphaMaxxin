@@ -70,6 +70,9 @@ jobs:
       - name: Offline boot smoke test
         run: python run.py --check
 
+      - name: Synthetic offline report smoke test
+        run: python scripts/demo_report.py --output "$RUNNER_TEMP/alphamaxxin-demo"
+
   frontend-build:
     runs-on: ubuntu-latest
     steps:
@@ -87,4 +90,5 @@ jobs:
         run: |
           npm ci
           npm audit --audit-level=moderate
+          npm test
           npm run build

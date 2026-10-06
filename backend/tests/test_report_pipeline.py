@@ -43,7 +43,7 @@ def canned_transport(calls):
         if "Synthesis" in system_prompt:
             body = {"markdown": "# Report\n\n## Verdict\nHold MSFT.",
                     "recommendations": [{"ticker": "MSFT", "action": "hold",
-                                         "conviction": "medium", "rationale": "mixed"}]}
+                                         "conviction": "low", "rationale": "mixed"}]}
         else:
             body = {"stance": "neutral", "confidence": "medium",
                     "key_findings": ["finding"], "narrative_md": "Narrative."}
@@ -90,7 +90,7 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     assert "suggested_weight_pct" in reco
     assert report["costs"]["calls"] == 4
     html = store.load_report_html(report_id, str(tmp_path / "reports"))
-    assert "Verdict" in html
+    assert "Recommendations" in html
     index = store.list_reports(str(tmp_path / "reports"))
     assert index[0]["id"] == report_id
     assert "fetch" in events and "synthesis" in events
@@ -99,14 +99,28 @@ async def test_lite_run_end_to_end(tmp_path, portfolio_target):
     # at a temp file, so this never touches the real data_store).
     from app.reports import ledger
     assert "MSFT" in ledger._load()["levels"]
-
-    # Disabled lenses recorded, never billed
     lenses = {l["id"]: l for l in report["lens_status"]}
     assert lenses["order_book"]["enabled"] is False
-    # ml_alpha is recorded in lens_status either way; its enabled state now
-    # depends on whether a trained model artifact is present in this env.
     assert "ml_alpha" in lenses
 
+
+async def test_each_pipeline_report_records_its_own_ledger_reference(tmp_path, portfolio_target, monkeypatch):
+    from app.reports import ledger
+    monkeypatch.setenv("ALPHAMAXXIN_LEDGER_FILE", str(tmp_path / "ledger.json"))
+    async def transport(system_prompt, user_prompt, model):
+        if "Synthesis" in system_prompt:
+            body = {"markdown": "Research commentary", "recommendations": [
+                {"ticker": "MSFT", "action": "reduce", "conviction": "low", "rationale": "concentration"}]}
+        else:
+            body = {"stance": "neutral", "confidence": "low", "key_findings": ["fixture"]}
+        return {"text": json.dumps(body), "model": model}
+    ids = []
+    for _ in range(2):
+        ids.append(await run_report(_registry(), {"preset": "Lite", "target": {"kind": "portfolio"}},
+                   lambda *args, **kwargs: None, reports_dir=str(tmp_path / "reports"), transport=transport))
+    entries = ledger._load()["entries"]
+    assert len(entries) == 2 and {e["report_id"] for e in entries} == set(ids)
+    assert all(e["id"] == f"{e['report_id']}:MSFT" for e in entries)
 
 async def test_market_scan_analyzes_screened_candidates_not_portfolio(
         tmp_path, portfolio_target):
@@ -213,7 +227,8 @@ async def test_synthesis_failure_falls_back_to_analyst_narratives(tmp_path, port
     synthesis = report["sections"]["synthesis"]
     assert synthesis["ok"] is False
     assert "529 overloaded" in synthesis["markdown"]
-    assert "All good." in synthesis["markdown"]  # surviving analyst narrative included
+    assert "All good." in synthesis["commentary_md"]
+    assert "All good." not in synthesis["markdown"]  # raw model prose cannot set authoritative numbers
     html = store.load_report_html(report_id, str(tmp_path / "reports"))
     assert "529 overloaded" in html  # visible in the rendered page, not just JSON
 
